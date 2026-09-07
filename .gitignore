@@ -1,0 +1,21 @@
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Flask / instance
+instance/
+.pytest_cache/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+
+# Migrations you don't want to hand-review yet can stay tracked —
+# do NOT ignore migrations/, they belong in version control.
