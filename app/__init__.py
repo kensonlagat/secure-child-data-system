@@ -21,6 +21,17 @@ migrate = Migrate()
 login_manager = LoginManager()
 
 
+@login_manager.user_loader
+def load_user(user_id):
+    """Resolve a persisted session user ID to a User model instance."""
+    from app.models.user import User
+
+    try:
+        return db.session.get(User, int(user_id))
+    except (TypeError, ValueError):
+        return None
+
+
 def create_app(config_name="development"):
     app = Flask(__name__)
     app.config.from_object(config_by_name[config_name])
@@ -49,6 +60,10 @@ def create_app(config_name="development"):
     app.register_blueprint(audit_bp, url_prefix="/audit")
     app.register_blueprint(notifications_bp, url_prefix="/notifications")
     app.register_blueprint(anomaly_bp, url_prefix="/anomaly")
+
+    # Register trusted local CLI bootstrap commands (roles + first admin).
+    from app.cli import register_cli_commands
+    register_cli_commands(app)
 
     # RBAC enforcement runs on every request, before it reaches a route.
     # This is what your proposal calls "role enforcement middleware".
