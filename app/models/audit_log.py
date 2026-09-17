@@ -1,5 +1,4 @@
-"""
-Audit Log Entry model — the tamper-proof accountability record.
+"""Audit Log Entry model — the tamper-proof accountability record.
 
 Critical design constraint from your proposal: entries must be insert-only.
 No route, service, or admin action should ever call db.session.delete() or
@@ -11,7 +10,9 @@ issue an UPDATE against this table. We enforce this two ways:
      a direct psql session can't violate it. This is what makes the log
      "tamper-proof" rather than just "conventionally append-only".
 """
+
 from datetime import datetime
+
 from app import db
 
 
@@ -34,6 +35,7 @@ class AuditLogEntry(db.Model):
     # short human-readable context, e.g. "updated medical_notes field"
 
     ip_address = db.Column(db.String(45))
+    is_synthetic = db.Column(db.Boolean, default=False, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     def __repr__(self):
