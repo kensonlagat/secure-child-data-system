@@ -39,6 +39,7 @@ class ChildRecord(db.Model):
     legal_status = db.Column(db.String(50))
     # e.g. "in_state_care", "eligible_for_adoption", "placed"
     caseload_worker_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    caseload_worker = db.relationship("User", foreign_keys=[caseload_worker_id])
     medical_notes = db.Column(EncryptedType(db.String, _encryption_key, AesEngine, "pkcs5"))
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

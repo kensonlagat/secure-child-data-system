@@ -36,6 +36,9 @@ class User(db.Model, UserMixin):
     phone_number = db.Column(db.String(20), nullable=False)
     # OTP and SMS notifications are delivered here via Africa's Talking
 
+    assigned_class = db.Column(db.String(50), nullable=True)
+    # Only meaningful for users with the teacher role; identifies which class they teach.
+
     password_hash = db.Column(db.String(255), nullable=False)
 
     role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
