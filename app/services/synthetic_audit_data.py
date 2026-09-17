@@ -27,6 +27,19 @@ ROLE_FAILED_AUTH_ACTIONS = {
 }
 
 
+def _build_user_login_time(day_timestamp, user, start_hour, end_hour, rng):
+    """Return a login time with a stable per-user center and small daily jitter."""
+    user_rng = random.Random((user.id * 1009) + (start_hour * 97) + (end_hour * 53))
+    total_window_minutes = ((end_hour - start_hour) * 60) + 59
+    preferred_offset_minutes = user_rng.randint(0, total_window_minutes)
+    daily_jitter_minutes = rng.randint(-8, 8)
+    final_offset_minutes = max(0, min(total_window_minutes, preferred_offset_minutes + daily_jitter_minutes))
+
+    login_time = day_timestamp.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+    login_time += timedelta(minutes=final_offset_minutes, seconds=rng.randint(0, 59))
+    return login_time
+
+
 def _pick_record_ids(role_name, user, school_record_ids, home_record_ids, all_record_ids):
     """Pick sensible target record IDs for a role's activity."""
     if role_name == "teacher":
@@ -64,7 +77,7 @@ def _role_normal_actions(role_name, rng, day_timestamp, user, record_ids):
         return actions
 
     if role_name == "teacher":
-        login_time = day_timestamp.replace(hour=rng.randint(7, 8), minute=rng.randint(0, 50), second=rng.randint(0, 59), microsecond=0)
+        login_time = _build_user_login_time(day_timestamp, user, 7, 8, rng)
         actions.append(_make_entry(user.id, "login", login_time, "user", user.id, "Synthetic teacher login"))
         view_count = rng.randint(1, 3)
         for index in range(view_count):
@@ -77,7 +90,7 @@ def _role_normal_actions(role_name, rng, day_timestamp, user, record_ids):
             actions.append(_make_entry(user.id, "update_record", update_time, "child_record", record_id, "Synthetic teacher record update"))
 
     elif role_name == "school_nurse":
-        login_time = day_timestamp.replace(hour=rng.randint(7, 9), minute=rng.randint(0, 45), second=rng.randint(0, 59), microsecond=0)
+        login_time = _build_user_login_time(day_timestamp, user, 7, 9, rng)
         actions.append(_make_entry(user.id, "login", login_time, "user", user.id, "Synthetic school nurse login"))
         for index in range(rng.randint(1, 4)):
             record_id = rng.choice(record_ids) if record_ids else None
@@ -89,7 +102,7 @@ def _role_normal_actions(role_name, rng, day_timestamp, user, record_ids):
             actions.append(_make_entry(user.id, "update_record", action_time, "child_record", record_id, "Synthetic school nurse medical note update"))
 
     elif role_name == "social_worker":
-        login_time = day_timestamp.replace(hour=rng.randint(8, 9), minute=rng.randint(0, 50), second=rng.randint(0, 59), microsecond=0)
+        login_time = _build_user_login_time(day_timestamp, user, 8, 9, rng)
         actions.append(_make_entry(user.id, "login", login_time, "user", user.id, "Synthetic social worker login"))
         for index in range(rng.randint(1, 3)):
             record_id = rng.choice(record_ids) if record_ids else None
@@ -101,7 +114,7 @@ def _role_normal_actions(role_name, rng, day_timestamp, user, record_ids):
             actions.append(_make_entry(user.id, "update_record", action_time, "child_record", record_id, "Synthetic social worker note update"))
 
     elif role_name == "legal_officer":
-        login_time = day_timestamp.replace(hour=rng.randint(8, 10), minute=rng.randint(0, 40), second=rng.randint(0, 59), microsecond=0)
+        login_time = _build_user_login_time(day_timestamp, user, 8, 10, rng)
         actions.append(_make_entry(user.id, "login", login_time, "user", user.id, "Synthetic legal officer login"))
         for index in range(rng.randint(1, 2)):
             record_id = rng.choice(record_ids) if record_ids else None
@@ -113,7 +126,7 @@ def _role_normal_actions(role_name, rng, day_timestamp, user, record_ids):
             actions.append(_make_entry(user.id, "legal_status_change_requested", action_time, "child_record", record_id, "Synthetic legal status request"))
 
     elif role_name == "administrator":
-        login_time = day_timestamp.replace(hour=rng.randint(7, 9), minute=rng.randint(0, 45), second=rng.randint(0, 59), microsecond=0)
+        login_time = _build_user_login_time(day_timestamp, user, 7, 9, rng)
         actions.append(_make_entry(user.id, "login", login_time, "user", user.id, "Synthetic administrator login"))
         for index in range(rng.randint(1, 4)):
             record_id = rng.choice(record_ids) if record_ids else None

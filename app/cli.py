@@ -4,6 +4,7 @@ import click
 from werkzeug.security import generate_password_hash
 
 from app import db
+from app.models.anomaly_alert import AnomalyAlert
 from app.models.audit_log import AuditLogEntry
 from app.models.user import Role, User
 from app.services.anomaly_scoring import score_recent_entries
@@ -19,6 +20,31 @@ ROLE_SEED_DATA = (
     ("legal_officer", "childrens_home"),
     ("parent_guardian", "school"),
 )
+SYNTHETIC_USER_CLASSES = ("Grade 4A", "Grade 5B", "Grade 6A", "Grade 7C", "Grade 8B")
+
+
+def _create_synthetic_user(role: Role, sequence_number: int) -> User:
+    """Create one synthetic user record for the requested role."""
+    user = User()
+    user.role_id = role.id
+    user.phone_number = f"+254700{role.id:02d}{sequence_number:04d}"
+    user.password_hash = generate_password_hash("Synthetic#2026")
+    user.is_active = True
+
+    if role.name == "administrator":
+        user.full_name = f"Admin Analyst {sequence_number:02d}"
+        user.email = f"synthetic.admin.{sequence_number:02d}@example.com"
+    elif role.name == "teacher":
+        user.full_name = f"Teacher Demo {sequence_number:02d}"
+        user.email = f"synthetic.teacher.{sequence_number:02d}@example.com"
+        user.assigned_class = SYNTHETIC_USER_CLASSES[(sequence_number - 1) % len(SYNTHETIC_USER_CLASSES)]
+    elif role.name == "legal_officer":
+        user.full_name = f"Legal Officer Demo {sequence_number:02d}"
+        user.email = f"synthetic.legal.{sequence_number:02d}@example.com"
+    else:
+        raise click.ClickException(f"Unsupported synthetic seed role: {role.name}")
+
+    return user
 
 
 @click.command("seed-roles")
@@ -110,6 +136,17 @@ def clear_synthetic_audit_data_command():
     and it is limited strictly to rows explicitly marked synthetic for testing
     and training data regeneration.
     """
+    synthetic_entry_ids = [
+        entry_id
+        for (entry_id,) in db.session.query(AuditLogEntry.id)
+        .filter(AuditLogEntry.is_synthetic.is_(True))
+        .all()
+    ]
+    if synthetic_entry_ids:
+        db.session.query(AnomalyAlert).filter(
+            AnomalyAlert.audit_log_entry_id.in_(synthetic_entry_ids)
+        ).delete(synchronize_session=False)
+
     deleted_count = (
         db.session.query(AuditLogEntry)
         .filter(AuditLogEntry.is_synthetic.is_(True))
@@ -117,6 +154,34 @@ def clear_synthetic_audit_data_command():
     )
     db.session.commit()
     click.echo(f"Deleted {deleted_count} synthetic audit rows.")
+
+
+@click.command("seed-synthetic-users")
+@click.option(
+    "--per-role",
+    default=3,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Number of additional synthetic users to create per supported role.",
+)
+def seed_synthetic_users_command(per_role: int):
+    """Create additional synthetic users for anomaly-training demos."""
+    supported_roles = ("administrator", "teacher", "legal_officer")
+
+    for role_name in supported_roles:
+        role = Role.query.filter_by(name=role_name).first()
+        if role is None:
+            raise click.ClickException(f"Role '{role_name}' not found. Run `flask seed-roles` first.")
+
+        existing_count = User.query.filter_by(role_id=role.id).count()
+        for offset in range(1, per_role + 1):
+            sequence_number = existing_count + offset
+            user = _create_synthetic_user(role, sequence_number)
+            db.session.add(user)
+            db.session.flush()
+            click.echo(f"Created {role_name} user_id={user.id} email={user.email}")
+
+    db.session.commit()
 
 
 @click.command("train-anomaly-models")
@@ -160,6 +225,7 @@ def register_cli_commands(app):
     """Attach project bootstrap CLI commands to the Flask app instance."""
     app.cli.add_command(seed_roles_command)
     app.cli.add_command(create_admin_command)
+    app.cli.add_command(seed_synthetic_users_command)
     app.cli.add_command(generate_synthetic_audit_data_command)
     app.cli.add_command(clear_synthetic_audit_data_command)
     app.cli.add_command(train_anomaly_models_command)
