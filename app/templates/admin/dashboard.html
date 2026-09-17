@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <div>
+        <p class="eyebrow">Administrator dashboard</p>
+        <h1>System overview</h1>
+        <p class="lead">Track record volume, pending legal status approvals, and the most recent audit activity from one
+            place.</p>
+    </div>
+</section>
+
+<section class="grid two-up" id="dashboard-summary">
+    <article class="panel">
+        <h2>Records by institution mode</h2>
+        <div class="metric-list">
+            {% for institution_mode, count in record_counts %}
+            <div class="metric-row">
+                <span class="metric-label">{{ institution_mode.replace('_', ' ') | title }}</span>
+                <strong>{{ count }}</strong>
+            </div>
+            {% else %}
+            <div class="empty-state">No child records have been created yet.</div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="panel">
+        <h2>Pending legal status requests</h2>
+        <div class="metric-value">{{ pending_legal_status_requests }}</div>
+        <p class="muted">Requests waiting for OTP confirmation or final approval.</p>
+    </article>
+</section>
+
+<section class="panel" id="create-record">
+    <h2>Create record</h2>
+    <p class="muted">Use the JSON API at <code>/admin/records</code> to create school or children's home records.</p>
+</section>
+
+<section class="panel" id="audit-log">
+    <h2>Recent audit activity</h2>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for audit_entry, user_full_name in recent_audit_rows %}
+                <tr>
+                    <td>{{ audit_entry.timestamp }}</td>
+                    <td>{{ user_full_name }}</td>
+                    <td>{{ audit_entry.action }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" class="empty-state">No audit entries yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

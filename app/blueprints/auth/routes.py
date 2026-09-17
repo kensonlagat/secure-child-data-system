@@ -35,6 +35,20 @@ def _get_payload_value(payload: dict, key: str) -> Optional[str]:
     return value
 
 
+def _landing_endpoint_for_user(user: User) -> str:
+    """Route authenticated users to the most relevant landing page."""
+    role_name = getattr(getattr(user, "role", None), "name", None)
+    institution_mode = getattr(getattr(user, "role", None), "institution_mode", None)
+
+    if role_name == "administrator":
+        return "admin.dashboard"
+    if role_name in {"teacher", "school_nurse"} or institution_mode == "school":
+        return "school_mode.records"
+    if role_name in {"social_worker", "legal_officer"} or institution_mode == "childrens_home":
+        return "childrens_home_mode.records"
+    return "admin.dashboard"
+
+
 @auth_bp.route("/register", methods=["POST"])
 @require_role("administrator")
 def register():
@@ -127,12 +141,7 @@ def login():
         details="Successful login",
     )
 
-    institution_mode = user.role.institution_mode if user.role else None
-    if institution_mode == "school":
-        return redirect(url_for("school_mode.records"))
-    if institution_mode == "childrens_home":
-        return redirect(url_for("childrens_home_mode.records"))
-    return redirect(url_for("admin.dashboard"))
+    return redirect(url_for(_landing_endpoint_for_user(user)))
 
 
 @auth_bp.route("/logout")

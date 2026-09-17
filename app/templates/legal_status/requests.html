@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}Legal Status Requests | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Legal workflow</p>
+    <h1>Legal status requests</h1>
+    <p class="lead">Track request status, confirm OTPs, approve changes, and reject invalid requests from one page.</p>
+</section>
+
+<section class="panel">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Child</th>
+                    <th>Current</th>
+                    <th>Requested</th>
+                    <th>Status</th>
+                    <th>Requested By</th>
+                    <th>Approved By</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for request in requests %}
+                <tr>
+                    <td>{{ request.child_name }}</td>
+                    <td>{{ request.current_status }}</td>
+                    <td>{{ request.requested_status }}</td>
+                    <td><span class="status-pill status-{{ request.status }}">{{ request.status }}</span></td>
+                    <td>{{ request.requested_by }}</td>
+                    <td>{{ request.approved_by or '-' }}</td>
+                    <td>
+                        <div class="row-actions">
+                            <button type="button" class="action-button" data-action="request-confirm"
+                                data-id="{{ request.id }}">Confirm OTP</button>
+                            <button type="button" class="action-button" data-action="approve"
+                                data-id="{{ request.id }}">Approve</button>
+                            <button type="button" class="action-button" data-action="confirm-approval"
+                                data-id="{{ request.id }}">Confirm Approval OTP</button>
+                            <button type="button" class="action-button danger" data-action="reject"
+                                data-id="{{ request.id }}">Reject</button>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="empty-state">No legal status requests to display.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<script>
+    async function postJson(url, payload) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || 'Request failed');
+        }
+        return data;
+    }
+
+    document.querySelectorAll('[data-action]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            const action = button.dataset.action;
+            const id = button.dataset.id;
+            let url = '';
+            let payload = {};
+
+            if (action === 'request-confirm') {
+                const otpCode = window.prompt('Enter requester OTP code');
+                if (!otpCode) return;
+                url = `/home-mode/legal-status/confirm-request/${id}`;
+                payload = { otp_code: otpCode };
+            } else if (action === 'approve') {
+                url = `/home-mode/legal-status/approve/${id}`;
+            } else if (action === 'confirm-approval') {
+                const otpCode = window.prompt('Enter approver OTP code');
+                if (!otpCode) return;
+                url = `/home-mode/legal-status/confirm-approval/${id}`;
+                payload = { otp_code: otpCode };
+            } else if (action === 'reject') {
+                url = `/home-mode/legal-status/reject/${id}`;
+            }
+
+            button.disabled = true;
+            const originalText = button.textContent;
+            button.textContent = 'Working...';
+
+            try {
+                await postJson(url, payload);
+                window.location.reload();
+            } catch (error) {
+                window.alert(error.message);
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Create Record | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Create record</h1>
+    <p class="lead">Create a new school or children's home record using the same fields supported by the API.</p>
+</section>
+
+<section class="panel">
+    {% if error %}
+    <div class="notice error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('admin.create_record') }}" class="form-grid">
+        <label class="field-group">
+            <span>Full name</span>
+            <input type="text" name="full_name" required>
+        </label>
+
+        <label class="field-group">
+            <span>Date of birth</span>
+            <input type="date" name="date_of_birth" required>
+        </label>
+
+        <label class="field-group">
+            <span>Institution mode</span>
+            <select name="institution_mode" required>
+                <option value="school">School</option>
+                <option value="childrens_home">Children's Home</option>
+            </select>
+        </label>
+
+        <label class="field-group">
+            <span>Guardian contact</span>
+            <input type="text" name="guardian_contact" placeholder="School mode only">
+        </label>
+
+        <label class="field-group">
+            <span>Class assigned</span>
+            <input type="text" name="class_assigned" placeholder="School mode only">
+        </label>
+
+        <label class="field-group">
+            <span>Caseload worker ID</span>
+            <input type="number" name="caseload_worker_id" placeholder="Children's home only">
+        </label>
+
+        <div class="form-actions">
+            <button type="submit" class="primary-button">Create record</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

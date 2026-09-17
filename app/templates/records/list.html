@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Records</p>
+    <h1>{{ page_heading }}</h1>
+    <p class="lead">{{ page_subtitle }}</p>
+</section>
+
+<section class="panel">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    {% for field_name in visible_fields %}
+                    <th>{{ field_name.replace('_', ' ') | title }}</th>
+                    {% endfor %}
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in record_entries %}
+                <tr>
+                    {% for field_name in visible_fields %}
+                    <td>{{ entry["values"][field_name] if entry["values"][field_name] is not none else '' }}</td>
+                    {% endfor %}
+                    <td>
+                        {% if entry["writable_fields"] %}
+                        <a class="action-link" href="{{ edit_url_builder(entry['record'].id) }}">Edit</a>
+                        {% else %}
+                        <span class="muted">Read only</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="{{ visible_fields|length + 1 }}" class="empty-state">No records available.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

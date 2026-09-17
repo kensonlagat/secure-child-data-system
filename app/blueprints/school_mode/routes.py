@@ -7,7 +7,7 @@ Scope per proposal:
 - Admin staff: fee records + general info
 - Parents: SMS notification on record access/modification
 """
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, jsonify, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app import db
@@ -54,9 +54,15 @@ def records():
     records_query = get_accessible_records(current_user).filter(
         ChildRecord.institution_mode == "school"
     )
-    serialized_records = [
-        _serialize_record(record, visible_fields) for record in records_query.all()
-    ]
+    record_entries = []
+    for record in records_query.all():
+        record_entries.append(
+            {
+                "record": record,
+                "values": _serialize_record(record, visible_fields),
+                "writable_fields": get_writable_fields(current_user, record),
+            }
+        )
 
     log_action(
         user_id=current_user.id,
@@ -64,7 +70,60 @@ def records():
         target_record_type="child_record",
         details="Viewed scoped school mode child records",
     )
-    return jsonify(serialized_records)
+
+    wants_html = request.accept_mimetypes.best_match(["text/html", "application/json"]) == "text/html"
+    if wants_html:
+        return render_template(
+            "records/list.html",
+            page_title="School Records",
+            page_heading="School records",
+            page_subtitle="Your scoped school-mode child records.",
+            visible_fields=visible_fields,
+            record_entries=record_entries,
+            edit_url_builder=lambda record_id: url_for("school_mode.edit_record", record_id=record_id),
+        )
+
+    return jsonify([entry["values"] for entry in record_entries])
+
+
+@school_bp.route("/records/<int:record_id>/edit")
+@login_required
+def edit_record(record_id):
+    """Render a focused edit form for writable school-mode fields."""
+    record = require_record_access(record_id)
+    writable_fields = get_writable_fields(current_user, record)
+    if not writable_fields:
+        abort(403)
+
+    field_meta = []
+    for field_name in writable_fields:
+        field_type = "text"
+        if field_name.endswith("_id"):
+            field_type = "number"
+        elif field_name == "date_of_birth":
+            field_type = "date"
+        field_value = getattr(record, field_name)
+        if hasattr(field_value, "isoformat"):
+            field_value = field_value.isoformat()
+        field_meta.append(
+            {
+                "name": field_name,
+                "label": field_name.replace("_", " ").title(),
+                "type": field_type,
+                "value": field_value or "",
+            }
+        )
+
+    return render_template(
+        "records/edit.html",
+        page_title="Edit School Record",
+        page_heading=f"Edit {record.full_name}",
+        page_subtitle="Update only the fields your role can write.",
+        record=record,
+        field_meta=field_meta,
+        patch_url=url_for("school_mode.update_record", record_id=record.id),
+        back_url=url_for("school_mode.records"),
+    )
 
 
 @school_bp.route("/records/<int:record_id>", methods=["PATCH"])

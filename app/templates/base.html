@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Child Data System{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+
+<body>
+    <div class="shell">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark">CDS</span>
+                <div>
+                    <div class="brand-title">Child Data System</div>
+                    <div class="brand-subtitle">Secure records and approvals</div>
+                </div>
+            </div>
+
+            {% if current_user.is_authenticated %}
+            {% set role_name = current_user.role.name if current_user.role else 'unassigned' %}
+            <div class="user-summary">
+                <div class="user-name">{{ current_user.full_name }}</div>
+                <div class="user-role">{{ role_name }}</div>
+            </div>
+            {% endif %}
+        </header>
+
+        {% if current_user.is_authenticated %}
+        {% set role_name = current_user.role.name if current_user.role else '' %}
+        <nav class="nav-bar" aria-label="Primary">
+            {% if role_name == 'administrator' %}
+            <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('admin.dashboard') }}#create-record">Create Record</a>
+            <a href="{{ url_for('audit.view_log') }}">Audit Log</a>
+            {% elif role_name in ['teacher', 'school_nurse'] %}
+            <a href="{{ url_for('school_mode.records') }}">My Class Records</a>
+            {% elif role_name == 'social_worker' %}
+            <a href="{{ url_for('childrens_home_mode.records') }}">My Caseload</a>
+            {% elif role_name == 'legal_officer' %}
+            <a href="{{ url_for('childrens_home_mode.records') }}">Legal Status Requests</a>
+            {% endif %}
+            <a class="nav-logout" href="{{ url_for('auth.logout') }}">Logout</a>
+        </nav>
+        {% endif %}
+
+        <main class="page">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Edit record</p>
+    <h1>{{ page_heading }}</h1>
+    <p class="lead">{{ page_subtitle }}</p>
+</section>
+
+<section class="panel">
+    <form id="record-edit-form" class="form-grid">
+        {% for field in field_meta %}
+        <label class="field-group">
+            <span>{{ field.label }}</span>
+            {% if field.name == 'institution_mode' %}
+            <select name="{{ field.name }}">
+                <option value="school" {% if field.value=='school' %}selected{% endif %}>School</option>
+                <option value="childrens_home" {% if field.value=='childrens_home' %}selected{% endif %}>Children's Home
+                </option>
+            </select>
+            {% else %}
+            <input type="{{ field.type }}" name="{{ field.name }}" value="{{ field.value }}">
+            {% endif %}
+        </label>
+        {% endfor %}
+
+        <div class="form-actions">
+            <button type="submit" class="primary-button">Save changes</button>
+            <a class="secondary-button" href="{{ back_url }}">Cancel</a>
+        </div>
+    </form>
+
+    <div id="form-message" class="notice" aria-live="polite"></div>
+</section>
+
+<script>
+    const form = document.getElementById('record-edit-form');
+    const messageBox = document.getElementById('form-message');
+    const patchUrl = {{ patch_url | tojson }};
+    const backUrl = {{ back_url | tojson }};
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        messageBox.className = 'notice';
+        messageBox.textContent = 'Saving...';
+
+        const payload = {};
+        for (const element of form.elements) {
+            if (!element.name) {
+                continue;
+            }
+
+            if (element.tagName === 'SELECT' || element.type === 'text' || element.type === 'date' || element.type === 'number') {
+                if (element.type === 'number') {
+                    payload[element.name] = element.value === '' ? null : Number(element.value);
+                } else {
+                    payload[element.name] = element.value;
+                }
+            }
+        }
+
+        const response = await fetch(patchUrl, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (response.ok) {
+            messageBox.className = 'notice success';
+            messageBox.textContent = data.message || 'Record updated successfully.';
+            window.setTimeout(() => {
+                window.location.href = backUrl;
+            }, 500);
+            return;
+        }
+
+        messageBox.className = 'notice error';
+        messageBox.textContent = data.error || 'Update failed.';
+    });
+</script>
+{% endblock %}
