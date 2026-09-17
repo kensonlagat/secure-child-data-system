@@ -108,20 +108,22 @@ def extract_features_for_entry(entry, session):
     }
 
 
-def extract_training_dataset(role_name, session):
+def extract_training_dataset(role_name, session, include_real_data=False):
     """Build a pandas DataFrame of features for all audit rows in one role.
 
     The query is read-only and filters AuditLogEntry rows through User -> Role
     so the resulting dataset matches the selected role's activity history.
     """
-    entries = (
+    entries_query = (
         session.query(AuditLogEntry)
         .join(User, AuditLogEntry.user_id == User.id)
         .join(Role, User.role_id == Role.id)
         .filter(Role.name == role_name)
-        .order_by(AuditLogEntry.timestamp.asc(), AuditLogEntry.id.asc())
-        .all()
     )
+    if not include_real_data:
+        entries_query = entries_query.filter(AuditLogEntry.is_synthetic.is_(True))
+
+    entries = entries_query.order_by(AuditLogEntry.timestamp.asc(), AuditLogEntry.id.asc()).all()
 
     feature_rows = [extract_features_for_entry(entry, session) for entry in entries]
     return pd.DataFrame(feature_rows, columns=FEATURE_COLUMNS)

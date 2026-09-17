@@ -1,12 +1,13 @@
 """CLI bootstrap commands for roles and first administrator account."""
 
 import click
-from datetime import datetime
 from werkzeug.security import generate_password_hash
 
 from app import db
 from app.models.audit_log import AuditLogEntry
 from app.models.user import Role, User
+from app.services.anomaly_scoring import score_recent_entries
+from app.services.anomaly_training import train_models_for_all_roles
 from app.services.audit_service import log_action
 from app.services.synthetic_audit_data import generate_synthetic_history
 
@@ -118,9 +119,48 @@ def clear_synthetic_audit_data_command():
     click.echo(f"Deleted {deleted_count} synthetic audit rows.")
 
 
+@click.command("train-anomaly-models")
+def train_anomaly_models_command():
+    """Train role-specific Isolation Forest models from audit history."""
+    summary = train_models_for_all_roles(db.session)
+
+    for role_name, result in summary.items():
+        click.echo(
+            f"{role_name}: trained={result['trained']} "
+            f"training_rows={result['training_rows']} "
+            f"reason_skipped={result['reason_skipped']}"
+        )
+
+
+@click.command("score-anomalies")
+@click.option(
+    "--since-hours",
+    default=24,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Score audit entries from the last N hours.",
+)
+def score_anomalies_command(since_hours: int):
+    """Score recent audit entries and persist any new anomaly alerts."""
+    alerts = score_recent_entries(db.session, since_hours=since_hours)
+    if alerts:
+        db.session.add_all(alerts)
+    db.session.commit()
+
+    per_role_counts = {}
+    for alert in alerts:
+        per_role_counts[alert.role_name] = per_role_counts.get(alert.role_name, 0) + 1
+
+    click.echo(f"Created {len(alerts)} new anomaly alerts.")
+    for role_name in sorted(per_role_counts):
+        click.echo(f"{role_name}: {per_role_counts[role_name]}")
+
+
 def register_cli_commands(app):
     """Attach project bootstrap CLI commands to the Flask app instance."""
     app.cli.add_command(seed_roles_command)
     app.cli.add_command(create_admin_command)
     app.cli.add_command(generate_synthetic_audit_data_command)
     app.cli.add_command(clear_synthetic_audit_data_command)
+    app.cli.add_command(train_anomaly_models_command)
+    app.cli.add_command(score_anomalies_command)
