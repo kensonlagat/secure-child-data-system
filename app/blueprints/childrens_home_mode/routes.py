@@ -7,7 +7,7 @@ Scope per proposal:
 - Legal status changes require two-person approval before saving
 - Optional academic module for homes running internal schools
 """
-from flask import Blueprint, abort, jsonify
+from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user, login_required
 
 from app import db
@@ -16,8 +16,10 @@ from app.services.access_service import (
     can_access_record,
     get_accessible_records,
     get_visible_fields,
+    get_writable_fields,
 )
 from app.services.audit_service import log_action
+from app.services.sms_service import send_sms
 
 home_bp = Blueprint("childrens_home_mode", __name__, template_folder="../../templates")
 
@@ -63,6 +65,53 @@ def records():
         details="Viewed scoped children's home child records",
     )
     return jsonify(serialized_records)
+
+
+@home_bp.route("/records/<int:record_id>", methods=["PATCH"])
+@login_required
+def update_record(record_id):
+    """Update only the fields this user may write on a children's-home record."""
+    record = require_record_access(record_id)
+    writable_fields = get_writable_fields(current_user, record)
+    payload = request.get_json(silent=True)
+
+    if not isinstance(payload, dict) or not payload:
+        return jsonify({"error": "Request JSON must include at least one updatable field."}), 400
+
+    rejected_fields = sorted([field_name for field_name in payload.keys() if field_name not in writable_fields])
+    if rejected_fields:
+        return (
+            jsonify({
+                "error": "Request contained field(s) this role cannot update.",
+                "rejected_fields": rejected_fields,
+            }),
+            400,
+        )
+
+    valid_updates = {field_name: payload[field_name] for field_name in payload.keys() if field_name in writable_fields}
+    if not valid_updates:
+        return jsonify({"error": "Request contained no valid writable fields."}), 400
+
+    changed_fields = []
+    for field_name, new_value in valid_updates.items():
+        if getattr(record, field_name) != new_value:
+            setattr(record, field_name, new_value)
+            changed_fields.append(field_name)
+
+    if not changed_fields:
+        return jsonify({"error": "No changes were applied."}), 400
+
+    db.session.commit()
+
+    log_action(
+        user_id=current_user.id,
+        action="update_record",
+        target_record_type="child_record",
+        target_record_id=record_id,
+        details=f"Updated fields: {', '.join(changed_fields)}",
+    )
+
+    return jsonify({"message": "Record updated successfully.", "updated_fields": changed_fields})
 
 
 @home_bp.route("/legal-status/<int:record_id>/request-change", methods=["POST"])

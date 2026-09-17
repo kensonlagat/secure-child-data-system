@@ -96,3 +96,34 @@ def get_visible_fields(user):
         return ["id", "full_name", "date_of_birth", "legal_status"]
 
     return []
+
+
+def get_writable_fields(user, record):
+    """Return the ChildRecord fields this user may update for the given record."""
+    role_name = _get_role_name(user)
+    if role_name == "administrator":
+        excluded_fields = {"id", "created_at", "updated_at", "legal_status"}
+        # Legal status changes must go through the dedicated two-person approval workflow,
+        # not a direct field update, regardless of role.
+        return [
+            column.name
+            for column in ChildRecord.__table__.columns
+            if column.name not in excluded_fields
+        ]
+
+    if role_name == "teacher":
+        if not can_access_record(user, record):
+            return []
+        return ["guardian_contact", "class_assigned"]
+
+    if role_name == "school_nurse":
+        if getattr(record, "institution_mode", None) != "school":
+            return []
+        return ["medical_notes"]
+
+    if role_name == "social_worker":
+        if not can_access_record(user, record):
+            return []
+        return ["medical_notes"]
+
+    return []
