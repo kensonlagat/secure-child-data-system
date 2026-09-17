@@ -7,11 +7,15 @@ Scope per proposal:
 - Legal status changes require two-person approval before saving
 - Optional academic module for homes running internal schools
 """
+from datetime import datetime
+
 from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user, login_required
 
 from app import db
+from app.middleware.rbac import require_role
 from app.models.child_record import ChildRecord
+from app.models.legal_status_change_request import LegalStatusChangeRequest, VALID_LEGAL_STATUSES
 from app.services.access_service import (
     can_access_record,
     get_accessible_records,
@@ -19,6 +23,7 @@ from app.services.access_service import (
     get_writable_fields,
 )
 from app.services.audit_service import log_action
+from app.services.otp_service import generate_otp, verify_otp
 from app.services.sms_service import send_sms
 
 home_bp = Blueprint("childrens_home_mode", __name__, template_folder="../../templates")
@@ -44,6 +49,26 @@ def require_record_access(record_id):
         )
         abort(403)
     return record
+
+
+def _load_change_request_or_404(change_request_id):
+    """Load a legal status change request or return a 404 response."""
+    change_request = db.session.get(LegalStatusChangeRequest, change_request_id)
+    if change_request is None:
+        abort(404)
+    return change_request
+
+
+def _log_and_abort(status_code, action, details, target_record_id=None):
+    """Write an audit row for a denied or failed state transition, then abort."""
+    log_action(
+        user_id=current_user.id,
+        action=action,
+        target_record_type="child_record",
+        target_record_id=target_record_id,
+        details=details,
+    )
+    abort(status_code)
 
 
 @home_bp.route("/records")
@@ -116,8 +141,265 @@ def update_record(record_id):
 
 @home_bp.route("/legal-status/<int:record_id>/request-change", methods=["POST"])
 @login_required
+@require_role("legal_officer", "administrator")
 def request_legal_status_change(record_id):
-    """Reserve legal status changes for the future two-person approval workflow."""
-    require_record_access(record_id)
-    # TODO (Sprint 4): create a pending change requiring second approver + OTP
-    return "Legal status change workflow placeholder"
+    """Create a legal status change request and send the requester OTP."""
+    record = require_record_access(record_id)
+    payload = request.get_json(silent=True) or {}
+    requested_status = payload.get("requested_status")
+
+    if not requested_status:
+        _log_and_abort(
+            400,
+            "legal_status_change_request_failed",
+            "Missing requested_status in legal status change request.",
+            target_record_id=record_id,
+        )
+
+    if requested_status not in VALID_LEGAL_STATUSES:
+        _log_and_abort(
+            400,
+            "legal_status_change_request_failed",
+            "Requested legal status is not recognized.",
+            target_record_id=record_id,
+        )
+
+    try:
+        otp_event = generate_otp(current_user, "legal_status_change", target_record_id=record.id)
+    except Exception:
+        _log_and_abort(
+            500,
+            "legal_status_change_request_failed",
+            "Failed to generate requester OTP for legal status change.",
+            target_record_id=record.id,
+        )
+
+    change_request = LegalStatusChangeRequest()
+    change_request.child_record_id = record.id
+    change_request.requested_by_user_id = current_user.id
+    change_request.current_status = record.legal_status or ""
+    change_request.requested_status = requested_status
+    change_request.status = "pending_otp"
+    change_request.requester_otp_event_id = otp_event.id
+
+    db.session.add(change_request)
+    db.session.commit()
+
+    log_action(
+        user_id=current_user.id,
+        action="legal_status_change_requested",
+        target_record_type="child_record",
+        target_record_id=record.id,
+        details=f"Requested legal status change to {requested_status}",
+    )
+
+    return jsonify({"change_request_id": change_request.id}), 201
+
+
+@home_bp.route("/legal-status/confirm-request/<int:change_request_id>", methods=["POST"])
+@login_required
+@require_role("legal_officer", "administrator")
+def confirm_legal_status_request(change_request_id):
+    """Verify the requester OTP and move the change request to approval pending."""
+    change_request = _load_change_request_or_404(change_request_id)
+    require_record_access(change_request.child_record_id)
+
+    if current_user.id != change_request.requester_otp_event.user_id:
+        _log_and_abort(
+            403,
+            "legal_status_change_otp_failed",
+            "OTP confirmation must be performed by the original requester.",
+            target_record_id=change_request.child_record_id,
+        )
+
+    payload = request.get_json(silent=True) or {}
+    otp_code = payload.get("otp_code")
+    if not otp_code:
+        _log_and_abort(
+            400,
+            "legal_status_change_otp_failed",
+            "Missing otp_code for requester OTP verification.",
+            target_record_id=change_request.child_record_id,
+        )
+
+    if change_request.status != "pending_otp" or change_request.requester_otp_event is None:
+        _log_and_abort(
+            400,
+            "legal_status_change_otp_failed",
+            "Legal status change request is not awaiting requester OTP verification.",
+            target_record_id=change_request.child_record_id,
+        )
+
+    if not verify_otp(change_request.requester_otp_event, otp_code):
+        _log_and_abort(
+            400,
+            "legal_status_change_otp_failed",
+            "Requester OTP verification failed for legal status change.",
+            target_record_id=change_request.child_record_id,
+        )
+
+    change_request.status = "pending_approval"
+    db.session.commit()
+
+    log_action(
+        user_id=current_user.id,
+        action="legal_status_change_otp_verified",
+        target_record_type="child_record",
+        target_record_id=change_request.child_record_id,
+        details=f"Requester OTP verified for legal status change request {change_request.id}",
+    )
+
+    return jsonify({"change_request_id": change_request.id, "status": change_request.status})
+
+
+@home_bp.route("/legal-status/approve/<int:change_request_id>", methods=["POST"])
+@login_required
+@require_role("legal_officer", "administrator")
+def request_legal_status_approval(change_request_id):
+    """Send the approver OTP after enforcing the two-person rule."""
+    change_request = _load_change_request_or_404(change_request_id)
+    record = require_record_access(change_request.child_record_id)
+
+    if change_request.status != "pending_approval":
+        _log_and_abort(
+            400,
+            "legal_status_change_approval_failed",
+            "Legal status change request is not awaiting approver OTP generation.",
+            target_record_id=record.id,
+        )
+
+    if current_user.id == change_request.requested_by_user_id:
+        _log_and_abort(
+            403,
+            "legal_status_approval_denied_same_user",
+            "Requester cannot also act as the approver for the same legal status change.",
+            target_record_id=record.id,
+        )
+
+    try:
+        otp_event = generate_otp(current_user, "legal_status_change_approval", target_record_id=record.id)
+    except Exception:
+        _log_and_abort(
+            500,
+            "legal_status_change_approval_failed",
+            "Failed to generate approver OTP for legal status change.",
+            target_record_id=record.id,
+        )
+
+    change_request.approver_otp_event_id = otp_event.id
+    db.session.commit()
+
+    log_action(
+        user_id=current_user.id,
+        action="legal_status_change_approval_requested",
+        target_record_type="child_record",
+        target_record_id=record.id,
+        details=f"Approver OTP generated for legal status change request {change_request.id}",
+    )
+
+    return jsonify(
+        {
+            "message": "Approval OTP sent. Confirm approval with the OTP to complete the change.",
+            "change_request_id": change_request.id,
+            "status": change_request.status,
+        }
+    )
+
+
+@home_bp.route("/legal-status/confirm-approval/<int:change_request_id>", methods=["POST"])
+@login_required
+@require_role("legal_officer", "administrator")
+def confirm_legal_status_approval(change_request_id):
+    """Verify the approver OTP and apply the requested legal status."""
+    change_request = _load_change_request_or_404(change_request_id)
+    record = require_record_access(change_request.child_record_id)
+    old_status = record.legal_status
+
+    if current_user.id != change_request.approver_otp_event.user_id:
+        _log_and_abort(
+            403,
+            "legal_status_change_approval_otp_failed",
+            "OTP confirmation must be performed by the original approver.",
+            target_record_id=record.id,
+        )
+
+    payload = request.get_json(silent=True) or {}
+    otp_code = payload.get("otp_code")
+    if not otp_code:
+        _log_and_abort(
+            400,
+            "legal_status_change_approval_otp_failed",
+            "Missing otp_code for approver OTP verification.",
+            target_record_id=record.id,
+        )
+
+    if change_request.status != "pending_approval" or change_request.approver_otp_event is None:
+        _log_and_abort(
+            400,
+            "legal_status_change_approval_otp_failed",
+            "Legal status change request is not awaiting approver OTP verification.",
+            target_record_id=record.id,
+        )
+
+    if not verify_otp(change_request.approver_otp_event, otp_code):
+        _log_and_abort(
+            400,
+            "legal_status_change_approval_otp_failed",
+            "Approver OTP verification failed for legal status change.",
+            target_record_id=record.id,
+        )
+
+    record.legal_status = change_request.requested_status
+    change_request.status = "approved"
+    change_request.resolved_at = datetime.utcnow()
+    change_request.approved_by_user_id = current_user.id
+    db.session.commit()
+
+    log_action(
+        user_id=current_user.id,
+        action="legal_status_change_approved",
+        target_record_type="child_record",
+        target_record_id=record.id,
+        details=f"Legal status changed from {old_status} to {change_request.requested_status}",
+    )
+
+    return jsonify({"change_request_id": change_request.id, "status": change_request.status})
+
+
+@home_bp.route("/legal-status/reject/<int:change_request_id>", methods=["POST"])
+@login_required
+@require_role("legal_officer", "administrator")
+def reject_legal_status_change(change_request_id):
+    """Reject a pending legal status change request with audit logging."""
+    change_request = _load_change_request_or_404(change_request_id)
+    record = require_record_access(change_request.child_record_id)
+
+    if current_user.id == change_request.requested_by_user_id:
+        _log_and_abort(
+            403,
+            "legal_status_rejection_denied_same_user",
+            "Requester cannot also reject the same legal status change request.",
+            target_record_id=record.id,
+        )
+
+    if change_request.status not in {"pending_otp", "pending_approval"}:
+        _log_and_abort(
+            400,
+            "legal_status_change_rejection_failed",
+            "Legal status change request is not in a rejectable state.",
+            target_record_id=record.id,
+        )
+
+    change_request.status = "rejected"
+    change_request.resolved_at = datetime.utcnow()
+    db.session.commit()
+
+    log_action(
+        user_id=current_user.id,
+        action="legal_status_change_rejected",
+        target_record_type="child_record",
+        target_record_id=record.id,
+        details=f"Legal status change request {change_request.id} rejected",
+    )
+
+    return jsonify({"change_request_id": change_request.id, "status": change_request.status})
