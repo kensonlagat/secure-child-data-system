@@ -34,6 +34,8 @@
             {% if role_name == 'administrator' %}
             <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
             <a href="{{ url_for('admin.dashboard') }}#create-record">Create Record</a>
+            <a href="{{ url_for('admin.anomaly_alerts') }}">Anomaly Alerts{% if new_anomaly_alert_count %}<span
+                    class="nav-badge">{{ new_anomaly_alert_count }}</span>{% endif %}</a>
             <a href="{{ url_for('audit.view_log') }}">Audit Log</a>
             {% elif role_name in ['teacher', 'school_nurse'] %}
             <a href="{{ url_for('school_mode.records') }}">My Class Records</a>

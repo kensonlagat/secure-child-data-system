@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Anomaly Alerts | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Anomaly alerts</h1>
+    <p class="lead">Review flagged audit activity, track its current disposition, and record triage actions in the audit
+        log.</p>
+</section>
+
+<section class="panel">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Score</th>
+                    <th>Status</th>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Role</th>
+                    <th>Action</th>
+                    <th>Details</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for alert, audit_entry, user_full_name in alert_rows %}
+                <tr>
+                    <td>{{ "%.6f"|format(alert.anomaly_score) }}</td>
+                    <td><span class="status-pill status-{{ alert.status }}">{{ alert.status }}</span></td>
+                    <td>{{ audit_entry.timestamp }}</td>
+                    <td>{{ user_full_name }}</td>
+                    <td>{{ alert.role_name }}</td>
+                    <td>{{ audit_entry.action }}</td>
+                    <td>{{ audit_entry.details }}</td>
+                    <td>
+                        <div class="row-actions">
+                            <button type="button" class="action-button"
+                                data-url="{{ url_for('admin.mark_anomaly_alert_reviewed', alert_id=alert.id) }}">Mark
+                                reviewed</button>
+                            <button type="button" class="action-button danger"
+                                data-url="{{ url_for('admin.dismiss_anomaly_alert', alert_id=alert.id) }}">Dismiss</button>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="empty-state">No anomaly alerts found.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<script>
+    document.querySelectorAll('[data-url]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Working...';
+
+            try {
+                const response = await fetch(button.dataset.url, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                    },
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(data.error || 'Request failed.');
+                }
+                window.location.reload();
+            } catch (error) {
+                window.alert(error.message);
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        });
+    });
+</script>
+{% endblock %}

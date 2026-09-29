@@ -15,6 +15,7 @@ from werkzeug.security import generate_password_hash
 
 from app import db
 from app.middleware.rbac import require_role
+from app.models.anomaly_alert import AnomalyAlert
 from app.models.child_record import ChildRecord
 from app.models.audit_log import AuditLogEntry
 from app.models.legal_status_change_request import LegalStatusChangeRequest
@@ -23,6 +24,11 @@ from app.services.audit_service import log_action
 from sqlalchemy import func
 
 admin_bp = Blueprint("admin", __name__, template_folder="../../templates")
+
+
+def _new_anomaly_alert_count():
+    """Return the number of anomaly alerts still awaiting review."""
+    return AnomalyAlert.query.filter_by(status="new").count()
 
 
 @admin_bp.route("/dashboard")
@@ -48,13 +54,79 @@ def dashboard():
         .limit(10)
         .all()
     )
+    new_anomaly_alert_count = _new_anomaly_alert_count()
 
     return render_template(
         "admin/dashboard.html",
         record_counts=record_counts,
         pending_legal_status_requests=pending_legal_status_requests,
         recent_audit_rows=recent_audit_rows,
+        new_anomaly_alert_count=new_anomaly_alert_count,
     )
+
+
+@admin_bp.route("/anomaly-alerts")
+@login_required
+@require_role("administrator")
+def anomaly_alerts():
+    """Render anomaly alerts ordered from most to least anomalous."""
+    alert_rows = (
+        db.session.query(
+            AnomalyAlert,
+            AuditLogEntry,
+            User.full_name.label("user_full_name"),
+        )
+        .join(AuditLogEntry, AnomalyAlert.audit_log_entry_id == AuditLogEntry.id)
+        .join(User, AuditLogEntry.user_id == User.id)
+        .order_by(AnomalyAlert.anomaly_score.asc(), AnomalyAlert.id.asc())
+        .all()
+    )
+
+    return render_template(
+        "admin/anomaly_alerts.html",
+        alert_rows=alert_rows,
+        new_anomaly_alert_count=_new_anomaly_alert_count(),
+    )
+
+
+@admin_bp.route("/anomaly-alerts/<int:alert_id>/mark-reviewed", methods=["POST"])
+@login_required
+@require_role("administrator")
+def mark_anomaly_alert_reviewed(alert_id):
+    """Mark an anomaly alert as reviewed and audit the action."""
+    alert = db.session.get(AnomalyAlert, alert_id)
+    if alert is None:
+        return jsonify({"error": "Anomaly alert not found."}), 404
+
+    alert.status = "reviewed"
+    log_action(
+        user_id=current_user.id,
+        action="anomaly_alert_reviewed",
+        target_record_type="anomaly_alert",
+        target_record_id=alert.id,
+        details=f"Reviewed anomaly alert {alert.id}",
+    )
+    return jsonify({"message": "Alert marked as reviewed.", "status": alert.status})
+
+
+@admin_bp.route("/anomaly-alerts/<int:alert_id>/dismiss", methods=["POST"])
+@login_required
+@require_role("administrator")
+def dismiss_anomaly_alert(alert_id):
+    """Dismiss an anomaly alert and audit the action."""
+    alert = db.session.get(AnomalyAlert, alert_id)
+    if alert is None:
+        return jsonify({"error": "Anomaly alert not found."}), 404
+
+    alert.status = "dismissed"
+    log_action(
+        user_id=current_user.id,
+        action="anomaly_alert_dismissed",
+        target_record_type="anomaly_alert",
+        target_record_id=alert.id,
+        details=f"Dismissed anomaly alert {alert.id}",
+    )
+    return jsonify({"message": "Alert dismissed.", "status": alert.status})
 
 
 @admin_bp.route("/records/new")
@@ -62,7 +134,10 @@ def dashboard():
 @require_role("administrator")
 def create_record_form():
     """Render the record creation form for administrators."""
-    return render_template("admin/create_record.html")
+    return render_template(
+        "admin/create_record.html",
+        new_anomaly_alert_count=_new_anomaly_alert_count(),
+    )
 
 
 @admin_bp.route("/records", methods=["POST"])
@@ -83,7 +158,11 @@ def create_record():
         }
         if request.is_json:
             return jsonify(error_payload), 400
-        return render_template("admin/create_record.html", error=error_payload["error"]), 400
+        return render_template(
+            "admin/create_record.html",
+            error=error_payload["error"],
+            new_anomaly_alert_count=_new_anomaly_alert_count(),
+        ), 400
 
     try:
         parsed_date_of_birth = date.fromisoformat(date_of_birth)
@@ -93,6 +172,7 @@ def create_record():
         return render_template(
             "admin/create_record.html",
             error="date_of_birth must be a valid ISO format date string.",
+            new_anomaly_alert_count=_new_anomaly_alert_count(),
         ), 400
 
     record = ChildRecord()
@@ -118,6 +198,7 @@ def create_record():
                 return render_template(
                     "admin/create_record.html",
                     error="caseload_worker_id must be an integer.",
+                    new_anomaly_alert_count=_new_anomaly_alert_count(),
                 ), 400
 
             caseload_worker = db.session.get(User, caseload_worker_id)
@@ -127,6 +208,7 @@ def create_record():
                 return render_template(
                     "admin/create_record.html",
                     error="caseload_worker_id must reference an existing social_worker.",
+                    new_anomaly_alert_count=_new_anomaly_alert_count(),
                 ), 400
 
             record.caseload_worker_id = caseload_worker_id

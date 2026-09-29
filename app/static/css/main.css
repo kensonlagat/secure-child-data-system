@@ -105,6 +105,20 @@ a {
     border-color: var(--accent);
 }
 
+.nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.4rem;
+    margin-left: 8px;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: #8b1e2d;
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
 .nav-logout {
     margin-left: auto;
 }
@@ -299,6 +313,21 @@ h1 {
 .status-rejected {
     background: #fdf0f0;
     color: #8b1e2d;
+}
+
+.status-new {
+    background: #fff3cd;
+    color: #7a5b00;
+}
+
+.status-reviewed {
+    background: #e7f4ec;
+    color: #1d6b3a;
+}
+
+.status-dismissed {
+    background: #eef2f5;
+    color: #52606d;
 }
 
 table {
