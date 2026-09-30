@@ -26,34 +26,45 @@ def _get_role_name(user):
 def get_accessible_records(user):
     """Return the scoped ChildRecord query for the supplied user."""
     role_name = _get_role_name(user)
+    base_query = ChildRecord.query.filter(ChildRecord.is_deleted.is_(False))
+
     if role_name == "administrator":
-        return ChildRecord.query
+        return base_query
 
     if role_name == "teacher":
         assigned_class = getattr(user, "assigned_class", None)
         if not assigned_class:
             return _empty_records_query()
-        return ChildRecord.query.filter(
+        return base_query.filter(
             ChildRecord.institution_mode == "school",
             ChildRecord.class_assigned == assigned_class,
         )
 
     if role_name == "school_nurse":
-        return ChildRecord.query.filter(ChildRecord.institution_mode == "school")
+        return base_query.filter(ChildRecord.institution_mode == "school")
 
     if role_name == "social_worker":
-        return ChildRecord.query.filter(
+        return base_query.filter(
             ChildRecord.institution_mode == "childrens_home",
             ChildRecord.caseload_worker_id == user.id,
         )
 
     if role_name == "legal_officer":
-        return ChildRecord.query.filter(ChildRecord.institution_mode == "childrens_home")
+        return base_query.filter(ChildRecord.institution_mode == "childrens_home")
 
     if role_name == "parent_guardian":
         return _empty_records_query()
 
     return _empty_records_query()
+
+
+def get_deleted_records(user):
+    """Return deleted records for administrators only."""
+    role_name = _get_role_name(user)
+    if role_name != "administrator":
+        return _empty_records_query()
+
+    return ChildRecord.query.filter(ChildRecord.is_deleted.is_(True))
 
 
 def can_access_record(user, record):

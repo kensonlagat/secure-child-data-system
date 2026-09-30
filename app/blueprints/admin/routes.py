@@ -7,7 +7,7 @@ Scope per proposal:
 - Full audit log access
 - Manage role permissions, deactivate accounts
 """
-from datetime import date
+from datetime import date, datetime
 
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -19,8 +19,10 @@ from app.models.anomaly_alert import AnomalyAlert
 from app.models.child_record import ChildRecord
 from app.models.audit_log import AuditLogEntry
 from app.models.legal_status_change_request import LegalStatusChangeRequest
+from app.models.otp_event import OTPEvent
 from app.models.user import User
 from app.services.audit_service import log_action
+from app.services.otp_service import generate_otp, verify_otp
 from sqlalchemy import func
 
 admin_bp = Blueprint("admin", __name__, template_folder="../../templates")
@@ -29,6 +31,19 @@ admin_bp = Blueprint("admin", __name__, template_folder="../../templates")
 def _new_anomaly_alert_count():
     """Return the number of anomaly alerts still awaiting review."""
     return AnomalyAlert.query.filter_by(status="new").count()
+
+
+def _latest_record_deletion_otp(record_id):
+    """Return the latest OTP event for the current user and record deletion flow."""
+    return (
+        OTPEvent.query.filter_by(
+            user_id=current_user.id,
+            action_context="record_deletion",
+            target_record_id=record_id,
+        )
+        .order_by(OTPEvent.id.desc())
+        .first()
+    )
 
 
 @admin_bp.route("/dashboard")
@@ -228,3 +243,91 @@ def create_record():
         return jsonify({"id": record.id, "institution_mode": record.institution_mode}), 201
 
     return redirect(url_for("admin.dashboard"))
+
+
+@admin_bp.route("/records/<int:record_id>/request-deletion", methods=["POST"])
+@login_required
+@require_role("administrator")
+def request_record_deletion(record_id):
+    """Generate an OTP for soft-deleting a child record."""
+    record = db.session.get(ChildRecord, record_id)
+    if record is None:
+        return jsonify({"error": "Child record not found."}), 404
+
+    if record.is_deleted:
+        return jsonify({"error": "Child record has already been deleted."}), 400
+
+    try:
+        generate_otp(current_user, "record_deletion", target_record_id=record.id)
+    except Exception:
+        return jsonify({"error": "Unable to generate deletion OTP."}), 500
+
+    log_action(
+        user_id=current_user.id,
+        action="record_deletion_requested",
+        target_record_type="child_record",
+        target_record_id=record.id,
+        details=f"Requested deletion for child record institution_mode={record.institution_mode}",
+    )
+
+    return jsonify({"message": "Deletion OTP sent."}), 201
+
+
+@admin_bp.route("/records/<int:record_id>/confirm-deletion", methods=["POST"])
+@login_required
+@require_role("administrator")
+def confirm_record_deletion(record_id):
+    """Verify the deletion OTP and soft-delete the child record."""
+    record = db.session.get(ChildRecord, record_id)
+    if record is None:
+        return jsonify({"error": "Child record not found."}), 404
+
+    if record.is_deleted:
+        return jsonify({"error": "Child record has already been deleted."}), 400
+
+    otp_event = _latest_record_deletion_otp(record.id)
+    if otp_event is None or otp_event.user_id != current_user.id:
+        log_action(
+            user_id=current_user.id,
+            action="record_deletion_otp_failed",
+            target_record_type="child_record",
+            target_record_id=record.id,
+            details="No matching deletion OTP was found for the current administrator.",
+        )
+        return jsonify({"error": "Deletion OTP verification failed."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    otp_code = payload.get("otp_code")
+    if not otp_code:
+        log_action(
+            user_id=current_user.id,
+            action="record_deletion_otp_failed",
+            target_record_type="child_record",
+            target_record_id=record.id,
+            details="Missing otp_code for record deletion verification.",
+        )
+        return jsonify({"error": "Deletion OTP verification failed."}), 400
+
+    if not verify_otp(otp_event, otp_code):
+        log_action(
+            user_id=current_user.id,
+            action="record_deletion_otp_failed",
+            target_record_type="child_record",
+            target_record_id=record.id,
+            details="Deletion OTP verification failed.",
+        )
+        return jsonify({"error": "Deletion OTP verification failed."}), 400
+
+    record.is_deleted = True
+    record.deleted_at = datetime.utcnow()
+    db.session.commit()
+
+    log_action(
+        user_id=current_user.id,
+        action="record_deleted",
+        target_record_type="child_record",
+        target_record_id=record.id,
+        details=f"Deleted child record institution_mode={record.institution_mode}",
+    )
+
+    return jsonify({"message": "Child record deleted successfully.", "status": "deleted"})
