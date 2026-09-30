@@ -11,22 +11,22 @@
 
 <section class="panel">
     {% if error %}
-    <div class="notice error">{{ error }}</div>
+    <div class="notice error" role="alert">{{ error }}</div>
     {% endif %}
 
     <form method="post" action="{{ url_for('admin.create_record') }}" class="form-grid">
         <label class="field-group">
-            <span>Full name</span>
-            <input type="text" name="full_name" required>
+            <span class="field-label">Full name</span>
+            <input type="text" name="full_name" required autocomplete="name">
         </label>
 
         <label class="field-group">
-            <span>Date of birth</span>
+            <span class="field-label">Date of birth</span>
             <input type="date" name="date_of_birth" required>
         </label>
 
         <label class="field-group">
-            <span>Institution mode</span>
+            <span class="field-label">Institution mode</span>
             <select name="institution_mode" required>
                 <option value="school">School</option>
                 <option value="childrens_home">Children's Home</option>
@@ -34,18 +34,21 @@
         </label>
 
         <label class="field-group">
-            <span>Guardian contact</span>
+            <span class="field-label">Guardian contact</span>
             <input type="text" name="guardian_contact" placeholder="School mode only">
+            <span class="field-help">Used for school records when parent notifications are needed.</span>
         </label>
 
         <label class="field-group">
-            <span>Class assigned</span>
+            <span class="field-label">Class assigned</span>
             <input type="text" name="class_assigned" placeholder="School mode only">
+            <span class="field-help">Visible for school records and teachers.</span>
         </label>
 
         <label class="field-group">
-            <span>Caseload worker ID</span>
+            <span class="field-label">Caseload worker ID</span>
             <input type="number" name="caseload_worker_id" placeholder="Children's home only">
+            <span class="field-help">Use a social worker user ID when creating a children's home record.</span>
         </label>
 
         <div class="form-actions">

@@ -11,7 +11,7 @@
 
 <section class="panel">
     <div class="table-wrap">
-        <table>
+        <table class="data-table">
             <thead>
                 <tr>
                     {% for field_name in visible_fields %}
@@ -26,9 +26,10 @@
                     {% for field_name in visible_fields %}
                     <td>{{ entry["values"][field_name] if entry["values"][field_name] is not none else '' }}</td>
                     {% endfor %}
-                    <td>
+                    <td class="table-actions">
                         {% if entry["writable_fields"] %}
-                        <a class="action-link" href="{{ edit_url_builder(entry['record'].id) }}">Edit</a>
+                        <a class="action-link action-link-button"
+                            href="{{ edit_url_builder(entry['record'].id) }}">Edit</a>
                         {% else %}
                         <span class="muted">Read only</span>
                         {% endif %}
