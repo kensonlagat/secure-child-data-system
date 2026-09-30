@@ -42,6 +42,9 @@ class ChildRecord(db.Model):
     caseload_worker = db.relationship("User", foreign_keys=[caseload_worker_id])
     medical_notes = db.Column(EncryptedType(db.String, _encryption_key, AesEngine, "pkcs5"))
 
+    is_deleted = db.Column(db.Boolean, nullable=False, default=False)
+    deleted_at = db.Column(db.DateTime)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

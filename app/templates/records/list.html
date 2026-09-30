@@ -10,6 +10,8 @@
 </section>
 
 <section class="panel">
+    <div id="record-action-message" class="notice" aria-live="polite" hidden></div>
+
     <div class="table-wrap">
         <table class="data-table">
             <thead>
@@ -33,6 +35,12 @@
                         {% else %}
                         <span class="muted">Read only</span>
                         {% endif %}
+
+                        {% if current_user.role and current_user.role.name == 'administrator' %}
+                        <button type="button" class="action-button danger" data-delete-record="{{ entry['record'].id }}"
+                            data-delete-url="{{ url_for('admin.request_record_deletion', record_id=entry['record'].id) }}"
+                            data-confirm-url="{{ url_for('admin.confirm_record_deletion', record_id=entry['record'].id) }}">Delete</button>
+                        {% endif %}
                     </td>
                 </tr>
                 {% else %}
@@ -44,4 +52,66 @@
         </table>
     </div>
 </section>
+
+{% if current_user.role and current_user.role.name == 'administrator' %}
+<script>
+    const recordActionMessage = document.getElementById('record-action-message');
+
+    async function postJson(url, payload) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || 'Request failed');
+        }
+        return data;
+    }
+
+    function showRecordMessage(kind, text) {
+        recordActionMessage.hidden = false;
+        recordActionMessage.className = `notice ${kind}`;
+        recordActionMessage.textContent = text;
+    }
+
+    document.querySelectorAll('[data-delete-record]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            const deleteUrl = button.dataset.deleteUrl;
+            const confirmUrl = button.dataset.confirmUrl;
+            const recordId = button.dataset.deleteRecord;
+
+            button.disabled = true;
+            const originalText = button.textContent;
+            button.textContent = 'Working...';
+
+            try {
+                await postJson(deleteUrl, {});
+                showRecordMessage('info', `Deletion OTP sent for record ${recordId}.`);
+
+                const otpCode = window.prompt('Enter deletion OTP code');
+                if (!otpCode) {
+                    showRecordMessage('warning', 'Deletion was requested, but no OTP was entered.');
+                    return;
+                }
+
+                const result = await postJson(confirmUrl, { otp_code: otpCode });
+                showRecordMessage('success', result.message || 'Record deleted successfully.');
+                window.setTimeout(() => {
+                    window.location.reload();
+                }, 700);
+            } catch (error) {
+                showRecordMessage('error', error.message);
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        });
+    });
+</script>
+{% endif %}
 {% endblock %}
