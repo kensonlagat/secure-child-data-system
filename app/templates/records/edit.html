@@ -13,7 +13,7 @@
     <form id="record-edit-form" class="form-grid">
         {% for field in field_meta %}
         <label class="field-group">
-            <span>{{ field.label }}</span>
+            <span class="field-label">{{ field.label }}</span>
             {% if field.name == 'institution_mode' %}
             <select name="{{ field.name }}">
                 <option value="school" {% if field.value=='school' %}selected{% endif %}>School</option>
@@ -32,7 +32,7 @@
         </div>
     </form>
 
-    <div id="form-message" class="notice" aria-live="polite"></div>
+    <div id="form-message" class="notice" aria-live="polite" hidden></div>
 </section>
 
 <script>
@@ -44,6 +44,7 @@
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
         messageBox.className = 'notice';
+        messageBox.hidden = false;
         messageBox.textContent = 'Saving...';
 
         const payload = {};
@@ -73,6 +74,7 @@
         const data = await response.json().catch(() => ({}));
         if (response.ok) {
             messageBox.className = 'notice success';
+            messageBox.hidden = false;
             messageBox.textContent = data.message || 'Record updated successfully.';
             window.setTimeout(() => {
                 window.location.href = backUrl;
@@ -81,7 +83,11 @@
         }
 
         messageBox.className = 'notice error';
+        messageBox.hidden = false;
         messageBox.textContent = data.error || 'Update failed.';
+        if (Array.isArray(data.rejected_fields) && data.rejected_fields.length) {
+            messageBox.textContent = `${messageBox.textContent} Rejected fields: ${data.rejected_fields.join(', ')}.`;
+        }
     });
 </script>
 {% endblock %}

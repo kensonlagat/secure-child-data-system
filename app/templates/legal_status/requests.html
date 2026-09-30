@@ -10,8 +10,10 @@
 </section>
 
 <section class="panel">
+    <div id="requests-message" class="notice" aria-live="polite" hidden></div>
+
     <div class="table-wrap">
-        <table>
+        <table class="data-table">
             <thead>
                 <tr>
                     <th>Child</th>
@@ -32,7 +34,7 @@
                     <td><span class="status-pill status-{{ request.status }}">{{ request.status }}</span></td>
                     <td>{{ request.requested_by }}</td>
                     <td>{{ request.approved_by or '-' }}</td>
-                    <td>
+                    <td class="table-actions">
                         <div class="row-actions">
                             <button type="button" class="action-button" data-action="request-confirm"
                                 data-id="{{ request.id }}">Confirm OTP</button>
@@ -56,6 +58,8 @@
 </section>
 
 <script>
+    const messageBox = document.getElementById('requests-message');
+
     async function postJson(url, payload) {
         const response = await fetch(url, {
             method: 'POST',
@@ -70,6 +74,12 @@
             throw new Error(data.error || 'Request failed');
         }
         return data;
+    }
+
+    function showMessage(kind, text) {
+        messageBox.hidden = false;
+        messageBox.className = `notice ${kind}`;
+        messageBox.textContent = text;
     }
 
     document.querySelectorAll('[data-action]').forEach((button) => {
@@ -98,12 +108,16 @@
             button.disabled = true;
             const originalText = button.textContent;
             button.textContent = 'Working...';
+            showMessage('info', 'Processing legal status workflow action...');
 
             try {
-                await postJson(url, payload);
-                window.location.reload();
+                const result = await postJson(url, payload);
+                showMessage('success', result.message || 'Request updated successfully.');
+                window.setTimeout(() => {
+                    window.location.reload();
+                }, 700);
             } catch (error) {
-                window.alert(error.message);
+                showMessage('error', error.message);
             } finally {
                 button.disabled = false;
                 button.textContent = originalText;
