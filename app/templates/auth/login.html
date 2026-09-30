@@ -1,26 +1,35 @@
-<!doctype html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Login</title>
-</head>
+{% block body_class %}auth-page{% endblock %}
 
-<body>
-    <h1>Secure Child Data System Login</h1>
+{% block title %}Login | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card auth-card">
+    <p class="eyebrow">Staff access</p>
+    <h1>Secure Child Data System</h1>
+    <p class="lead">Sign in to manage records, approvals, and audit trails.</p>
+</section>
+
+<section class="panel auth-card">
     {% if error %}
-    <p style="color: #b00020;">{{ error }}</p>
+    <div class="notice error" role="alert">{{ error }}</div>
     {% endif %}
-    <form method="post" action="{{ url_for('auth.login') }}">
-        <label for="email">Email</label>
-        <input id="email" name="email" type="email" required>
 
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" minlength="8" required>
+    <form method="post" action="{{ url_for('auth.login') }}" class="form-grid">
+        <label class="field-group">
+            <span class="field-label">Email</span>
+            <input id="email" name="email" type="email" required autocomplete="username" autofocus>
+        </label>
 
-        <button type="submit">Sign in</button>
+        <label class="field-group">
+            <span class="field-label">Password</span>
+            <input id="password" name="password" type="password" minlength="8" required autocomplete="current-password">
+        </label>
+
+        <div class="form-actions">
+            <button type="submit" class="primary-button">Sign in</button>
+        </div>
     </form>
-</body>
-
-</html>
+</section>
+{% endblock %}
