@@ -21,8 +21,9 @@ class AuditLogEntry(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     user = db.relationship("User", back_populates="audit_entries")
+    attempted_identifier = db.Column(db.String(255))
 
     action = db.Column(db.String(50), nullable=False)
     # e.g. "view", "create", "update", "delete", "export", "login", "login_failed"

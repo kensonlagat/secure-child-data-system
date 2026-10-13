@@ -3,7 +3,7 @@ OTP generation, hashing, and verification logic (Sprint 1).
 Uses the same hashing approach as passwords — never store or transmit
 the raw code in logs.
 """
-import random
+import secrets
 import string
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -13,9 +13,11 @@ from app.config import BaseConfig
 from app.models.otp_event import OTPEvent
 from app.services.sms_service import send_sms
 
+MAX_OTP_ATTEMPTS = 5
+
 
 def generate_otp(user, action_context: str, target_record_id: int = None) -> OTPEvent:
-    code = "".join(random.choices(string.digits, k=BaseConfig.OTP_LENGTH))
+    code = "".join(secrets.choice(string.digits) for _ in range(BaseConfig.OTP_LENGTH))
 
     otp_event = OTPEvent(
         user_id=user.id,
@@ -32,6 +34,9 @@ def generate_otp(user, action_context: str, target_record_id: int = None) -> OTP
 
 
 def verify_otp(otp_event: OTPEvent, submitted_code: str) -> bool:
+    if otp_event.attempt_count >= MAX_OTP_ATTEMPTS:
+        return False
+
     otp_event.attempt_count += 1
     if otp_event.is_expired():
         db.session.commit()
