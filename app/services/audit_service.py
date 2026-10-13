@@ -11,15 +11,23 @@ from app.models.audit_log import AuditLogEntry
 
 
 def log_action(
-    user_id: int,
     action: str,
+    user_id: Optional[int] = None,
     target_record_type: Optional[str] = None,
     target_record_id: Optional[int] = None,
     details: Optional[str] = None,
+    attempted_identifier: Optional[str] = None,
 ):
     """Create and persist a single append-only audit log entry."""
+    # `attempted_identifier` exists for pre-authentication events only, such as
+    # unknown login or password-reset attempts where no real user account can be
+    # attached yet. Every other caller should continue passing a real user_id.
+    if user_id is None and attempted_identifier is None:
+        raise ValueError("user_id is required unless attempted_identifier is provided.")
+
     entry = AuditLogEntry()
     entry.user_id = user_id
+    entry.attempted_identifier = attempted_identifier
     entry.action = action
     entry.target_record_type = target_record_type
     entry.target_record_id = target_record_id
