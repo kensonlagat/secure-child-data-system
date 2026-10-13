@@ -249,9 +249,9 @@ def reset_password():
         or otp_event is None
         or otp_event.user_id != user.id
         or otp_event.is_verified
+        or not _is_valid_password(new_password)
         or not otp_code
         or not verify_otp(otp_event, otp_code)
-        or not _is_valid_password(new_password)
     )
 
     if reset_failed:
