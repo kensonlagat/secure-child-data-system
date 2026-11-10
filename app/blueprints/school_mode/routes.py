@@ -19,6 +19,7 @@ from app.services.access_service import (
     get_writable_fields,
 )
 from app.services.audit_service import log_action
+from app.services.record_validation import RecordValidationError, validate_record_updates
 from app.services.sms_service import send_sms
 
 school_bp = Blueprint("school_mode", __name__, template_folder="../../templates")
@@ -147,7 +148,13 @@ def update_record(record_id):
             400,
         )
 
-    valid_updates = {field_name: payload[field_name] for field_name in payload.keys() if field_name in writable_fields}
+    try:
+        valid_updates = validate_record_updates(
+            {field_name: payload[field_name] for field_name in payload.keys()}
+        )
+    except RecordValidationError as error:
+        return jsonify({"error": str(error), "field": error.field_name}), 400
+
     if not valid_updates:
         return jsonify({"error": "Request contained no valid writable fields."}), 400
 

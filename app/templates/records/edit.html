@@ -15,13 +15,14 @@
         <label class="field-group">
             <span class="field-label">{{ field.label }}</span>
             {% if field.name == 'institution_mode' %}
-            <select name="{{ field.name }}">
+            <select name="{{ field.name }}" data-initial-value="{{ field.value }}">
                 <option value="school" {% if field.value=='school' %}selected{% endif %}>School</option>
                 <option value="childrens_home" {% if field.value=='childrens_home' %}selected{% endif %}>Children's Home
                 </option>
             </select>
             {% else %}
-            <input type="{{ field.type }}" name="{{ field.name }}" value="{{ field.value }}">
+            <input type="{{ field.type }}" name="{{ field.name }}" value="{{ field.value }}"
+                data-initial-value="{{ field.value }}">
             {% endif %}
         </label>
         {% endfor %}
@@ -54,6 +55,11 @@
             }
 
             if (element.tagName === 'SELECT' || element.type === 'text' || element.type === 'date' || element.type === 'number') {
+                const initialValue = element.dataset.initialValue;
+                if (element.value === initialValue) {
+                    continue;
+                }
+
                 if (element.type === 'number') {
                     payload[element.name] = element.value === '' ? null : Number(element.value);
                 } else {
