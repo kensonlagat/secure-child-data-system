@@ -174,6 +174,66 @@ def test_lockout_lifts_after_configured_window(app):
     assert response.location.endswith("/school/records")
 
 
+def _row_ids(app, action):
+    with app.app_context():
+        return [row.id for row in AuditLogEntry.query.filter_by(action=action).all()]
+
+
+def _set_timestamps(app, row_ids, minutes_ago, seconds_ago=0):
+    # Test-only: backdates rows in the in-memory test DB to simulate elapsed time.
+    with app.app_context():
+        for row in AuditLogEntry.query.filter(AuditLogEntry.id.in_(row_ids)).all():
+            row.timestamp = datetime.utcnow() - timedelta(
+                minutes=minutes_ago, seconds=seconds_ago
+            )
+        db.session.commit()
+
+
+def _action_count(app, action):
+    with app.app_context():
+        return AuditLogEntry.query.filter_by(action=action).count()
+
+
+def test_blocked_attempts_write_only_login_blocked(app):
+    client = app.test_client()
+    for _ in range(5):
+        post_login(client, "teacher@example.com", "wrong-password")
+    assert _action_count(app, "login_failed") == 5
+
+    for _ in range(3):
+        assert_generic_failure(post_login(client, "teacher@example.com", "Teacher#2026"))
+
+    assert _action_count(app, "login_failed") == 5
+    assert _action_count(app, "login_blocked") == 3
+
+
+def test_blocked_attempts_do_not_extend_lockout(app):
+    client = app.test_client()
+    assert app.config["LOGIN_LOCKOUT_MINUTES"] == 15
+    for _ in range(5):
+        post_login(client, "teacher@example.com", "wrong-password")
+    real_failure_ids = _row_ids(app, "login_failed")
+    assert len(real_failure_ids) == 5
+
+    # 14 minutes after the last real failure: still locked. Keep retrying
+    # with the correct password, as a real user would.
+    # As many blocked attempts as the lockout limit, so if they were counted
+    # as failures they alone would re-lock the account.
+    _set_timestamps(app, real_failure_ids, minutes_ago=14)
+    blocked_attempts = app.config["LOGIN_MAX_FAILURES"]
+    for _ in range(blocked_attempts):
+        assert_generic_failure(post_login(client, "teacher@example.com", "Teacher#2026"))
+    # Those blocked attempts are only seconds old and are not backdated below.
+    assert _action_count(app, "login_blocked") == blocked_attempts
+
+    # Just over 15 minutes after the last real failure, the lockout has expired
+    # even though blocked attempts happened inside the window.
+    _set_timestamps(app, real_failure_ids, minutes_ago=15, seconds_ago=1)
+    response = post_login(client, "teacher@example.com", "Teacher#2026")
+    assert response.status_code == 302
+    assert response.location.endswith("/school/records")
+
+
 def test_inactive_account_messages_are_distinct_and_safe(app):
     with app.app_context():
         user = User.query.filter_by(email="teacher@example.com").one()

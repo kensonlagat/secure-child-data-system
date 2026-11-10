@@ -1,20 +1,10 @@
 """Authentication routes for Sprint 1 registration and login."""
-
 import re
 import time
 from datetime import datetime, timedelta
 from typing import Optional
 
-from flask import (
-    Blueprint,
-    current_app,
-    flash,
-    jsonify,
-    redirect,
-    render_template,
-    request,
-    url_for,
-)
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy import func
@@ -134,10 +124,7 @@ def _landing_endpoint_for_user(user: User) -> str:
         return "admin.dashboard"
     if role_name in {"teacher", "school_nurse"} or institution_mode == "school":
         return "school_mode.records"
-    if (
-        role_name in {"social_worker", "legal_officer"}
-        or institution_mode == "childrens_home"
-    ):
+    if role_name in {"social_worker", "legal_officer"} or institution_mode == "childrens_home":
         return "childrens_home_mode.records"
     return "admin.dashboard"
 
@@ -146,13 +133,10 @@ def _render_reset_failure(email: Optional[str]):
     """Return the generic reset-password failure response for HTML or JSON."""
     if request.is_json:
         return jsonify({"error": RESET_PASSWORD_GENERIC_ERROR}), 400
-    return (
-        render_template(
-            "auth/reset_password.html",
-            error=RESET_PASSWORD_GENERIC_ERROR,
-        ),
-        400,
-    )
+    return render_template(
+        "auth/reset_password.html",
+        error=RESET_PASSWORD_GENERIC_ERROR,
+    ), 400
 
 
 def _latest_password_reset_otp(user_id: int) -> Optional[OTPEvent]:
@@ -182,10 +166,7 @@ def register():
         return jsonify({"error": "Password must be at least 8 characters."}), 400
 
     if not full_name or not phone_number or not role_id:
-        return (
-            jsonify({"error": "full_name, phone_number and role_id are required."}),
-            400,
-        )
+        return jsonify({"error": "full_name, phone_number and role_id are required."}), 400
 
     try:
         role_id = int(role_id)
@@ -216,10 +197,7 @@ def register():
         target_record_id=user.id,
         details=f"Created user account for {user.email}",
     )
-    return (
-        jsonify({"message": "User registered successfully.", "user_id": user.id}),
-        201,
-    )
+    return jsonify({"message": "User registered successfully.", "user_id": user.id}), 201
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -240,7 +218,9 @@ def login():
 
     if _login_lockout_state(email, user, request.remote_addr):
         check_password_hash(DUMMY_PASSWORD_HASH, password)
-        _log_login_failure(email, user, "Login attempt blocked by lockout policy")
+        # Only `login_blocked` here, never `login_failed`: the real password is not
+        # checked, so a blocked attempt is not a credential failure and must not
+        # extend the lockout. It expires a fixed window after the last real failure.
         log_action(
             user_id=user.id if user is not None else None,
             action="login_blocked",
@@ -375,9 +355,7 @@ def forgot_password():
 def reset_password():
     """Verify a password reset OTP and set a new password."""
     if request.method == "GET":
-        return render_template(
-            "auth/reset_password.html", email=request.args.get("email", "")
-        )
+        return render_template("auth/reset_password.html", email=request.args.get("email", ""))
 
     start_time = time.monotonic()
 
