@@ -38,6 +38,14 @@ RESET_PASSWORD_GENERIC_ERROR = "Unable to reset password."
 # worst-case SMS API latency to prevent timing-based user enumeration.
 MIN_RESPONSE_SECONDS = 2.0
 GENERIC_LOGIN_ERROR = "Invalid credentials, or too many attempts. Try again later."
+# These messages are shown only after the password has verified, so they reveal
+# nothing to someone who does not already hold the account's credentials.
+INACTIVE_ACCOUNT_ERROR = "This account has been deactivated. Contact your administrator."
+PORTAL_MISMATCH_ERROR = (
+    "This account doesn't belong to the selected portal. "
+    "Choose the other portal and try again."
+)
+PARENT_ACCOUNT_ERROR = "Parent accounts use the parent sign-in."
 DUMMY_PASSWORD_HASH = generate_password_hash("unusable-login-password")
 
 
@@ -64,6 +72,13 @@ def _login_failure_response():
     if request.is_json:
         return jsonify({"error": GENERIC_LOGIN_ERROR}), 401
     return render_template("auth/login.html", error=GENERIC_LOGIN_ERROR), 401
+
+
+def _login_denied_response(message):
+    """Return a specific denial shown only after the password has verified."""
+    if request.is_json:
+        return jsonify({"error": message}), 401
+    return render_template("auth/login.html", error=message), 401
 
 
 def _login_lockout_state(email, user, remote_addr):
@@ -246,8 +261,10 @@ def login():
         _log_login_failure(email, user, "Failed login attempt with invalid password")
         return _login_failure_response()
 
+    # From here on the password is correct. The denials below are audited under
+    # their own actions but deliberately do NOT write `login_failed`, so they never
+    # count toward lockout: they are not guessing attempts.
     if not user.is_active:
-        _log_login_failure(email, user, "Failed login attempt for inactive account")
         log_action(
             user_id=user.id,
             action="login_denied_inactive",
@@ -256,25 +273,25 @@ def login():
             details="Login denied because the account is inactive",
             attempted_identifier=email,
         )
-        return (
-            render_template(
-                "auth/login.html",
-                error="This account has been deactivated. Contact your administrator.",
-            ),
-            401,
-        )
+        return _login_denied_response(INACTIVE_ACCOUNT_ERROR)
 
     role_name = getattr(getattr(user, "role", None), "name", None)
     institution_mode = getattr(getattr(user, "role", None), "institution_mode", None)
-    portal_matches = (
-        portal_valid
-        and role_name != "parent_guardian"
-        and (role_name == "administrator" or institution_mode == portal)
+    if role_name == "parent_guardian":
+        log_action(
+            user_id=user.id,
+            action="login_portal_mismatch",
+            target_record_type="user",
+            target_record_id=user.id,
+            details="Login denied because a parent account used the staff sign-in",
+            attempted_identifier=email,
+        )
+        return _login_denied_response(PARENT_ACCOUNT_ERROR)
+
+    portal_matches = portal_valid and (
+        role_name == "administrator" or institution_mode == portal
     )
     if not portal_matches:
-        _log_login_failure(
-            email, user, "Login failed because the portal did not match the account"
-        )
         log_action(
             user_id=user.id,
             action="login_portal_mismatch",
@@ -283,7 +300,7 @@ def login():
             details="Login denied because the selected portal did not match the account",
             attempted_identifier=email,
         )
-        return _login_failure_response()
+        return _login_denied_response(PORTAL_MISMATCH_ERROR)
 
     login_user(user)
     log_action(
