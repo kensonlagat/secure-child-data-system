@@ -6,10 +6,12 @@ Why a factory pattern (create_app) instead of a global `app` object:
 - Avoids circular imports between blueprints and extensions
 - Standard Flask best practice for anything beyond a toy script
 """
-from flask import Flask
+
+from flask import Flask, flash, jsonify, redirect, request, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
+from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from app.config import config_by_name
 
@@ -19,6 +21,7 @@ from app.config import config_by_name
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
+csrf = CSRFProtect()
 
 
 @login_manager.user_loader
@@ -40,7 +43,31 @@ def create_app(config_name="development"):
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
+    csrf.init_app(app)
     login_manager.login_view = "auth.login"
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(error):
+        """Return a safe CSRF failure response for API and form requests."""
+        from flask_login import current_user
+
+        if current_user.is_authenticated:
+            from app.services.audit_service import log_action
+
+            log_action(
+                user_id=current_user.id,
+                action="csrf_failure",
+                details=f"CSRF validation failed for {request.path}",
+            )
+
+        if request.is_json:
+            return jsonify({"error": "CSRF validation failed."}), 400
+
+        flash(
+            "Your session form token is invalid or has expired. Please try again.",
+            "error",
+        )
+        return redirect(request.referrer or url_for("auth.login"))
 
     # Register blueprints — each module in the proposal maps to one blueprint.
     # Keeping registration here (not scattered) gives us one place to see
@@ -63,11 +90,13 @@ def create_app(config_name="development"):
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
     from app.cli import register_cli_commands
+
     register_cli_commands(app)
 
     # RBAC enforcement runs on every request, before it reaches a route.
     # This is what your proposal calls "role enforcement middleware".
     from app.middleware.rbac import register_rbac_hooks
+
     register_rbac_hooks(app)
 
     return app

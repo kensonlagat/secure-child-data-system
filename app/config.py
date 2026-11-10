@@ -5,6 +5,7 @@ never hardcoded — especially secrets and the encryption key.
 Load order: python-dotenv reads .env into os.environ at process start
 (see run.py), then these classes read from os.environ.
 """
+
 import os
 from datetime import timedelta
 
@@ -15,6 +16,7 @@ class BaseConfig:
     SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-env-file")
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    WTF_CSRF_TIME_LIMIT = None
 
     # Field-level encryption key for sensitive child record columns.
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -40,9 +42,7 @@ class DevelopmentConfig(BaseConfig):
 
 class TestingConfig(BaseConfig):
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "TEST_DATABASE_URL", "sqlite:///:memory:"
-    )
+    SQLALCHEMY_DATABASE_URI = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
     WTF_CSRF_ENABLED = False
 
 
