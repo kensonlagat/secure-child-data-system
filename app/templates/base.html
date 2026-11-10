@@ -52,8 +52,10 @@
             <a class="nav-link {% if current_endpoint.startswith('childrens_home_mode.') %}is-active{% endif %}"
                 href="{{ url_for('childrens_home_mode.records') }}">My Caseload</a>
             {% elif role_name == 'legal_officer' %}
-            <a class="nav-link {% if current_endpoint.startswith('childrens_home_mode.') %}is-active{% endif %}"
-                href="{{ url_for('childrens_home_mode.records') }}">Legal Status Requests</a>
+            <a class="nav-link {% if current_endpoint == 'childrens_home_mode.legal_status_requests' %}is-active{% endif %}"
+                href="{{ url_for('childrens_home_mode.legal_status_requests') }}">Legal Status Requests</a>
+            <a class="nav-link {% if current_endpoint == 'childrens_home_mode.records' %}is-active{% endif %}"
+                href="{{ url_for('childrens_home_mode.records') }}">Records</a>
             {% endif %}
             <a class="nav-logout" href="{{ url_for('auth.logout') }}">Logout</a>
         </nav>
