@@ -1,6 +1,8 @@
-"""CLI bootstrap commands for roles and first administrator account."""
+"""CLI bootstrap and diagnostics commands."""
 
 import click
+import os
+import re
 from werkzeug.security import generate_password_hash
 
 from app import db
@@ -11,6 +13,7 @@ from app.services.anomaly_scoring import score_recent_entries
 from app.services.anomaly_training import train_models_for_all_roles
 from app.services.audit_service import log_action
 from app.services.synthetic_audit_data import generate_synthetic_history
+from app.services.sms_service import send_sms
 
 ROLE_SEED_DATA = (
     ("administrator", "both"),
@@ -21,6 +24,7 @@ ROLE_SEED_DATA = (
     ("parent_guardian", "school"),
 )
 SYNTHETIC_USER_CLASSES = ("Grade 4A", "Grade 5B", "Grade 6A", "Grade 7C", "Grade 8B")
+E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
 def _create_synthetic_user(role: Role, sequence_number: int) -> User:
@@ -37,7 +41,9 @@ def _create_synthetic_user(role: Role, sequence_number: int) -> User:
     elif role.name == "teacher":
         user.full_name = f"Teacher Demo {sequence_number:02d}"
         user.email = f"synthetic.teacher.{sequence_number:02d}@example.com"
-        user.assigned_class = SYNTHETIC_USER_CLASSES[(sequence_number - 1) % len(SYNTHETIC_USER_CLASSES)]
+        user.assigned_class = SYNTHETIC_USER_CLASSES[
+            (sequence_number - 1) % len(SYNTHETIC_USER_CLASSES)
+        ]
     elif role.name == "legal_officer":
         user.full_name = f"Legal Officer Demo {sequence_number:02d}"
         user.email = f"synthetic.legal.{sequence_number:02d}@example.com"
@@ -68,7 +74,9 @@ def seed_roles_command():
         click.echo(f"Created role: {role_name} ({institution_mode})")
 
     db.session.commit()
-    click.echo(f"Role seeding complete. Created: {created_count}, Skipped: {skipped_count}")
+    click.echo(
+        f"Role seeding complete. Created: {created_count}, Skipped: {skipped_count}"
+    )
 
 
 @click.command("create-admin")
@@ -81,8 +89,12 @@ def seed_roles_command():
     confirmation_prompt=True,
     help="Administrator password.",
 )
-@click.option("--full-name", "full_name", required=True, help="Administrator full name.")
-@click.option("--phone", "phone_number", required=True, help="Administrator phone number.")
+@click.option(
+    "--full-name", "full_name", required=True, help="Administrator full name."
+)
+@click.option(
+    "--phone", "phone_number", required=True, help="Administrator phone number."
+)
 def create_admin_command(email: str, password: str, full_name: str, phone_number: str):
     """Create the first administrator account from a trusted local terminal."""
     admin_role = Role.query.filter_by(name="administrator").first()
@@ -113,11 +125,49 @@ def create_admin_command(email: str, password: str, full_name: str, phone_number
         details="CLI bootstrap administrator account creation",
     )
 
-    click.echo(f"Administrator account created with user_id={user.id} and email={user.email}")
+    click.echo(
+        f"Administrator account created with user_id={user.id} and email={user.email}"
+    )
+
+
+@click.command("test-sms")
+@click.option(
+    "--to", "phone_number", required=True, help="E.164 recipient phone number."
+)
+def test_sms_command(phone_number: str):
+    """Send a diagnostic SMS without exposing credentials or message contents."""
+    if not E164_PHONE_PATTERN.fullmatch(phone_number):
+        raise click.ClickException("Recipient must be a valid E.164 phone number.")
+
+    username = os.environ.get("AFRICASTALKING_USERNAME")
+    api_key = os.environ.get("AFRICASTALKING_API_KEY")
+    click.echo(f"username set: {'yes' if username else 'no'}")
+    click.echo(f"api key set: {'yes' if api_key else 'no'}")
+
+    try:
+        response = send_sms(phone_number, "Test message from the child data system.")
+    except Exception as error:
+        click.echo(f"send failed: {type(error).__name__}: {error}")
+        return
+
+    recipients = response.get("SMSMessageData", {}).get("Recipients", [])
+    if not recipients:
+        click.echo("No recipient status fields returned.")
+        return
+
+    for recipient in recipients:
+        for field_name, field_value in recipient.items():
+            click.echo(f"{field_name}: {field_value}")
 
 
 @click.command("generate-synthetic-audit-data")
-@click.option("--days", default=30, show_default=True, type=click.IntRange(min=1), help="Number of days of history to generate.")
+@click.option(
+    "--days",
+    default=30,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Number of days of history to generate.",
+)
 def generate_synthetic_audit_data_command(days: int):
     """Generate clearly synthetic audit data for anomaly-detection training."""
     with db.session.begin():
@@ -125,7 +175,9 @@ def generate_synthetic_audit_data_command(days: int):
 
     click.echo(f"Generated synthetic audit data for {days} days.")
     for role_name, counts in summary.items():
-        click.echo(f"{role_name}: normal={counts['normal']} anomalous={counts['anomalous']}")
+        click.echo(
+            f"{role_name}: normal={counts['normal']} anomalous={counts['anomalous']}"
+        )
 
 
 @click.command("clear-synthetic-audit-data")
@@ -171,7 +223,9 @@ def seed_synthetic_users_command(per_role: int):
     for role_name in supported_roles:
         role = Role.query.filter_by(name=role_name).first()
         if role is None:
-            raise click.ClickException(f"Role '{role_name}' not found. Run `flask seed-roles` first.")
+            raise click.ClickException(
+                f"Role '{role_name}' not found. Run `flask seed-roles` first."
+            )
 
         existing_count = User.query.filter_by(role_id=role.id).count()
         for offset in range(1, per_role + 1):
@@ -225,6 +279,7 @@ def register_cli_commands(app):
     """Attach project bootstrap CLI commands to the Flask app instance."""
     app.cli.add_command(seed_roles_command)
     app.cli.add_command(create_admin_command)
+    app.cli.add_command(test_sms_command)
     app.cli.add_command(seed_synthetic_users_command)
     app.cli.add_command(generate_synthetic_audit_data_command)
     app.cli.add_command(clear_synthetic_audit_data_command)

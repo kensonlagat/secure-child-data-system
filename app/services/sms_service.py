@@ -4,8 +4,12 @@ notifications. Keeping this as one service (not scattered inline calls)
 means Sprint 1 (OTP) and Sprint 6 (Notifications) both build on the same
 tested foundation.
 """
+
+import logging
 import os
 import africastalking
+
+logger = logging.getLogger(__name__)
 
 
 def _get_sms_client():
@@ -18,8 +22,12 @@ def _get_sms_client():
 
 def send_sms(phone_number: str, message: str) -> dict:
     """Send a single SMS. Returns the Africa's Talking API response dict."""
-    sms = _get_sms_client()
-    response = sms.send(message, [phone_number])
+    try:
+        sms = _get_sms_client()
+        response = sms.send(message, [phone_number])
+    except Exception as error:
+        logger.error("SMS send failed with %s", type(error).__name__)
+        raise
     # TODO (Sprint 6): log this send in the notifications table regardless
     # of success/failure, per the "all notifications logged" requirement.
     return response
