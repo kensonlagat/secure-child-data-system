@@ -4,8 +4,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional
 
-from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
-from flask_login import current_user, login_user, logout_user
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session, url_for
+from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy import func
 
@@ -36,6 +36,10 @@ PORTAL_MISMATCH_ERROR = (
     "Choose the other portal and try again."
 )
 PARENT_ACCOUNT_ERROR = "Parent accounts use the parent sign-in."
+# Session key for the portal the user signed in through. Display only: it decides which
+# mode the pages show, never what the server allows (access_service.py does that).
+ACTIVE_PORTAL_SESSION_KEY = "active_portal"
+VALID_PORTALS = {"school", "childrens_home"}
 DUMMY_PASSWORD_HASH = generate_password_hash("unusable-login-password")
 
 
@@ -204,6 +208,8 @@ def register():
 def login():
     """Authenticate a user with lockout, timing, and portal-binding controls."""
     if request.method == "GET":
+        if current_user.is_authenticated:
+            return redirect(url_for(_landing_endpoint_for_user(current_user)))
         return render_template("auth/login.html")
 
     payload = request.get_json(silent=True) or request.form
@@ -212,7 +218,7 @@ def login():
     raw_password = payload.get("password")
     password = raw_password if isinstance(raw_password, str) else ""
     portal = _get_payload_value(payload, "portal") or "school"
-    portal_valid = portal in {"school", "childrens_home"}
+    portal_valid = portal in VALID_PORTALS
 
     user = User.query.filter(func.lower(User.email) == email).first() if email else None
 
@@ -283,6 +289,7 @@ def login():
         return _login_denied_response(PORTAL_MISMATCH_ERROR)
 
     login_user(user)
+    session[ACTIVE_PORTAL_SESSION_KEY] = portal
     log_action(
         user_id=user.id,
         action="login",
@@ -298,7 +305,39 @@ def login():
 def logout():
     """Terminate the current login session and return to login."""
     logout_user()
+    session.pop(ACTIVE_PORTAL_SESSION_KEY, None)
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/switch-portal", methods=["POST"])
+@login_required
+@require_role("administrator")
+def switch_portal():
+    """Let an administrator change which portal's pages they see, without signing out.
+
+    Display only: access rules are unchanged. Other roles are bound to their own mode,
+    so only administrators can switch. Every switch is audited.
+    """
+    payload = request.get_json(silent=True) or request.form
+    portal = _get_payload_value(payload, "portal")
+    if portal not in VALID_PORTALS:
+        if request.is_json:
+            return jsonify({"error": "Choose a valid portal."}), 400
+        flash("Choose a valid portal.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    previous_portal = session.get(ACTIVE_PORTAL_SESSION_KEY)
+    session[ACTIVE_PORTAL_SESSION_KEY] = portal
+    log_action(
+        user_id=current_user.id,
+        action="portal_switch",
+        target_record_type="user",
+        target_record_id=current_user.id,
+        details=f"Switched portal from {previous_portal or 'none'} to {portal}",
+    )
+    if request.is_json:
+        return jsonify({"message": "Portal switched.", "portal": portal})
+    return redirect(url_for("admin.dashboard"))
 
 
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
