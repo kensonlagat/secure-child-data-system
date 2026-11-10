@@ -1128,3 +1128,89 @@ dialog.modal::backdrop {
         background: linear-gradient(to right, var(--surface) var(--rail-width), transparent 0);
     }
 }
+
+/* ---------- Sign-in: portal chip, trust stack, portal accent ---------- */
+
+.portal-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+}
+
+.portal-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.75rem;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-pill);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.portal-chip svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.trust-strip.trust-stack {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+    margin-top: var(--space-8);
+}
+
+/* Heading rule in the card: neutral by default, portal accent when a portal is chosen. */
+.auth-card-title {
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--line);
+}
+
+.auth-card-title::after {
+    content: "";
+    display: block;
+    width: 3rem;
+    height: 3px;
+    margin-top: var(--space-3);
+    margin-bottom: calc(-1 * var(--space-3) - 2px);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+}
+
+body.portal-locked .auth-card {
+    border-top-color: var(--accent);
+}
+
+body.portal-locked .auth-card .primary-button:hover {
+    background: var(--accent);
+    color: var(--surface);
+}
+
+/* Desktop: intro and trust points on the left, the card on the right.
+   Phones: DOM order (intro, card, trust points), so visual and reading order match. */
+@media (min-width: 768px) {
+    .auth-layout:has(> .auth-trust) {
+        grid-template-areas:
+            "intro card"
+            "trust card";
+        grid-template-rows: auto 1fr;
+    }
+
+    .auth-layout:has(> .auth-trust) > .auth-intro {
+        grid-area: intro;
+    }
+
+    .auth-layout:has(> .auth-trust) > .auth-card {
+        grid-area: card;
+    }
+
+    .auth-layout:has(> .auth-trust) > .auth-trust {
+        grid-area: trust;
+    }
+}
+
+.auth-trust .trust-stack {
+    margin-top: 0;
+}

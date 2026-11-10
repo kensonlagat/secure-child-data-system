@@ -1,5 +1,8 @@
 {% import "_ui.html" as ui %}
-{%- if current_user.is_authenticated -%}
+{#- Pages that set `public_layout = true` (sign-in, password reset) always use the public
+    layout, with no rail or user card, even for a signed-in visitor. -#}
+{%- set use_app_layout = current_user.is_authenticated and not public_layout -%}
+{%- if use_app_layout -%}
 {%- set role_name = current_user.role.name if current_user.role else '' -%}
 {%- set role_mode = current_user.role.institution_mode if current_user.role else '' -%}
 {%- if role_name == 'administrator' or role_mode not in ['school', 'childrens_home'] -%}
@@ -26,7 +29,7 @@
 </head>
 
 <body class="{% block body_class %}{% endblock %}"
-    data-portal="{% if current_user.is_authenticated %}{{ portal_key }}{% else %}{% block public_portal %}neutral{% endblock %}{% endif %}">
+    data-portal="{% if use_app_layout %}{{ portal_key }}{% else %}{% block public_portal %}neutral{% endblock %}{% endif %}">
     <a class="skip-link" href="#main">Skip to content</a>
 
     {% macro flash_messages() %}
@@ -42,7 +45,7 @@
     {% endwith %}
     {% endmacro %}
 
-    {% if current_user.is_authenticated %}
+    {% if use_app_layout %}
     {% set current_endpoint = request.endpoint or '' %}
     <div class="app">
         <header class="rail">

@@ -15,6 +15,33 @@
 'parent_guardian': 'Parent or guardian',
 } %}
 
+{# Display names for stored institution_mode values. Display only: stored values never change. #}
+{% set MODE_LABELS = {'school': 'School', 'childrens_home': "Children's Home", 'both': 'Both modes'} %}
+
+{% macro mode_label(value) -%}
+{{ MODE_LABELS.get(value, value) }}
+{%- endmacro %}
+
+{% macro trust_points(extra_class='') -%}
+<ul class="trust-strip {{ extra_class }}">
+    <li class="trust-item">
+        {{ icon('lock') }}
+        <strong>Encrypted records</strong>
+        <span>Names, guardian contacts and medical notes are encrypted at rest.</span>
+    </li>
+    <li class="trust-item">
+        {{ icon('ledger') }}
+        <strong>Every access logged</strong>
+        <span>Record views, changes and sign-ins are recorded in the audit log.</span>
+    </li>
+    <li class="trust-item">
+        {{ icon('twokey') }}
+        <strong>Two-person approval</strong>
+        <span>A legal status change needs a second officer and a one-time code for each.</span>
+    </li>
+</ul>
+{%- endmacro %}
+
 {% macro field_label(field_name) -%}
 {{ field_name.replace('_', ' ') | capitalize }}
 {%- endmacro %}

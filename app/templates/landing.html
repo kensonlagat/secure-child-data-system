@@ -31,22 +31,6 @@
 
 <section aria-labelledby="trust-title">
     <h2 id="trust-title" class="visually-hidden">How records are protected</h2>
-    <ul class="trust-strip">
-        <li class="trust-item">
-            {{ ui.icon('lock') }}
-            <strong>Encrypted records</strong>
-            <span>Names, guardian contacts and medical notes are encrypted at rest.</span>
-        </li>
-        <li class="trust-item">
-            {{ ui.icon('ledger') }}
-            <strong>Every access logged</strong>
-            <span>Record views, changes and sign-ins are recorded in the audit log.</span>
-        </li>
-        <li class="trust-item">
-            {{ ui.icon('twokey') }}
-            <strong>Two-person approval</strong>
-            <span>A legal status change needs a second officer and a one-time code for each.</span>
-        </li>
-    </ul>
+    {{ ui.trust_points() }}
 </section>
 {% endblock %}

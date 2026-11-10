@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 
 {% block title %}Admin Dashboard | Child Data System{% endblock %}
 
@@ -15,7 +16,7 @@
         <div class="metric-list">
             {% for institution_mode, count in record_counts %}
             <div class="metric-row">
-                <span class="metric-label">{{ institution_mode.replace('_', ' ') | title }}</span>
+                <span class="metric-label">{{ ui.mode_label(institution_mode) }}</span>
                 <strong>{{ count }}</strong>
             </div>
             {% else %}
@@ -44,8 +45,7 @@
         <h2>Create record</h2>
         <a class="primary-button" href="{{ url_for('admin.create_record_form') }}">New child record</a>
     </div>
-    <p class="muted">Create school or children's home records with the form, or with the JSON API at
-        <code>/admin/records</code>.</p>
+    <p class="muted">Create a school or children's home record. Sensitive fields are encrypted when saved.</p>
 </section>
 
 <section class="panel" id="audit-log" aria-labelledby="audit-log-title">

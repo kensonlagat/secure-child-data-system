@@ -35,7 +35,7 @@
                 <tr>
                     {% for field_name in visible_fields %}
                     {% set value = entry["values"][field_name] %}
-                    <td{% if field_name in ui.MONO_FIELDS %} class="mono"{% endif %}>{% if value is none or value == '' %}<span class="cell-empty" aria-label="Empty">&mdash;</span>{% else %}{{ value }}{% endif %}</td>
+                    <td{% if field_name in ui.MONO_FIELDS %} class="mono"{% endif %}>{% if value is none or value == '' %}<span class="cell-empty" aria-label="Empty">&mdash;</span>{% elif field_name == 'institution_mode' %}{{ ui.mode_label(value) }}{% else %}{{ value }}{% endif %}</td>
                     {% endfor %}
                     <td class="table-actions">
                         {% if entry["writable_fields"] %}

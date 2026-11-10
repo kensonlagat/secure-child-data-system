@@ -1,12 +1,17 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% set public_layout = true %}
 
-{# Pre-select the portal from the form (after a failed POST) or the query string (from a landing door).
-   This only sets a default in the dropdown: the server still checks the account's role against it. #}
-{% set chosen_portal = request.form.get('portal') or request.args.get('portal') %}
+{# A portal chosen at a landing door (?portal=) is shown as a locked chip and sent as a hidden
+   field. Without one, the dropdown is shown. Either way this only sets the requested portal:
+   the server still checks the account's role against it after the password verifies. #}
+{% set query_portal = request.args.get('portal') %}
+{% set portal_locked = query_portal in ['school', 'childrens_home'] %}
+{% set chosen_portal = query_portal if portal_locked else (request.form.get('portal') or 'school') %}
 {% if chosen_portal not in ['school', 'childrens_home'] %}{% set chosen_portal = 'school' %}{% endif %}
 
-{% block body_class %}auth-page{% endblock %}
-{% block public_portal %}{{ chosen_portal }}{% endblock %}
+{% block body_class %}auth-page{% if portal_locked %} portal-locked{% endif %}{% endblock %}
+{% block public_portal %}{{ chosen_portal if portal_locked else 'neutral' }}{% endblock %}
 
 {% block title %}Sign in | Child Data System{% endblock %}
 
@@ -14,18 +19,20 @@
 <div class="auth-layout">
     <section class="auth-intro">
         <p class="eyebrow">Staff sign-in</p>
-        <h1>{{ "Children's Home portal" if chosen_portal == 'childrens_home' else 'School portal' }}</h1>
+        <h1>{{ ui.mode_label(chosen_portal) ~ ' portal' if portal_locked else 'Sign in to your portal' }}</h1>
         <p class="lead">Sign in with your staff email. You will only see the records your role is responsible for, and
             every access is recorded.</p>
     </section>
 
     <section class="panel auth-card" aria-labelledby="signin-title">
-        <h2 id="signin-title">Sign in</h2>
+        <h2 id="signin-title" class="auth-card-title">Sign in</h2>
         {% if error %}
         <div class="notice error" role="alert">{{ error }}</div>
         {% endif %}
 
-        <form method="post" action="{{ url_for('auth.login') }}" class="form-grid">
+        <form method="post"
+            action="{{ url_for('auth.login', portal=chosen_portal) if portal_locked else url_for('auth.login') }}"
+            class="form-grid">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label class="field-group" for="email">
                 <span class="field-label">Email</span>
@@ -38,6 +45,19 @@
                     autocomplete="current-password">
             </label>
 
+            {% if portal_locked %}
+            <div class="field-group">
+                <span class="field-label" id="portal-label">Portal</span>
+                <div class="portal-chip-row">
+                    <span class="portal-chip">
+                        {{ ui.icon('lock') }}
+                        <span>{{ ui.mode_label(chosen_portal) }}</span>
+                    </span>
+                    <a class="action-link" href="{{ url_for('index') }}">Choose a different portal</a>
+                </div>
+                <input type="hidden" id="portal" name="portal" value="{{ chosen_portal }}">
+            </div>
+            {% else %}
             <label class="field-group" for="portal">
                 <span class="field-label">Portal</span>
                 <select id="portal" name="portal">
@@ -46,6 +66,7 @@
                         Home</option>
                 </select>
             </label>
+            {% endif %}
 
             <div class="form-actions">
                 <button type="submit" class="primary-button">Sign in</button>
@@ -53,9 +74,15 @@
 
             <p class="auth-links">
                 <a class="action-link" href="{{ url_for('auth.forgot_password') }}">Forgot password?</a>
-                <a class="action-link" href="{{ url_for('index') }}">Choose a different portal</a>
+                {% if not portal_locked %}
+                <a class="action-link" href="{{ url_for('index') }}">Back to portals</a>
+                {% endif %}
             </p>
         </form>
+    </section>
+
+    <section class="auth-trust" aria-label="How records are protected">
+        {{ ui.trust_points('trust-stack') }}
     </section>
 </div>
 {% endblock %}
