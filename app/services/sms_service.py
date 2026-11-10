@@ -7,27 +7,35 @@ tested foundation.
 
 import logging
 import os
-import africastalking
+
+from curl_cffi import requests
 
 logger = logging.getLogger(__name__)
-
-
-def _get_sms_client():
-    africastalking.initialize(
-        username=os.environ.get("AFRICASTALKING_USERNAME", "sandbox"),
-        api_key=os.environ.get("AFRICASTALKING_API_KEY"),
-    )
-    return africastalking.SMS
 
 
 def send_sms(phone_number: str, message: str) -> dict:
     """Send a single SMS. Returns the Africa's Talking API response dict."""
     try:
-        sms = _get_sms_client()
-        response = sms.send(message, [phone_number])
+        username = os.environ.get("AFRICASTALKING_USERNAME", "sandbox")
+        api_key = os.environ.get("AFRICASTALKING_API_KEY")
+        response = requests.post(
+            "https://api.sandbox.africastalking.com/version1/messaging",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "child-data-system-sms/1.0",
+                "apiKey": api_key or "",
+            },
+            data={
+                "username": username,
+                "to": phone_number,
+                "message": message,
+                "bulkSMSMode": 1,
+            },
+            timeout=15,
+            impersonate="chrome",
+        )
+        response.raise_for_status()
+        return response.json()
     except Exception as error:
         logger.error("SMS send failed with %s", type(error).__name__)
         raise
-    # TODO (Sprint 6): log this send in the notifications table regardless
-    # of success/failure, per the "all notifications logged" requirement.
-    return response
