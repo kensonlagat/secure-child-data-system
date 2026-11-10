@@ -17,6 +17,9 @@ class BaseConfig:
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_TIME_LIMIT = None
+    LOGIN_MAX_FAILURES = 5
+    LOGIN_LOCKOUT_MINUTES = 15
+    LOGIN_IP_MAX_FAILURES = 20
 
     # Field-level encryption key for sensitive child record columns.
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

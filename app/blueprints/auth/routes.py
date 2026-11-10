@@ -1,14 +1,27 @@
 """Authentication routes for Sprint 1 registration and login."""
+
 import re
 import time
+from datetime import datetime, timedelta
 from typing import Optional
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_login import current_user, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
+from sqlalchemy import func
 
 from app import db
 from app.middleware.rbac import require_role
+from app.models.audit_log import AuditLogEntry
 from app.models.otp_event import OTPEvent
 from app.models.user import Role, User
 from app.services.audit_service import log_action
@@ -24,6 +37,8 @@ RESET_PASSWORD_GENERIC_ERROR = "Unable to reset password."
 # time is independent of whether the account exists. Must stay above the
 # worst-case SMS API latency to prevent timing-based user enumeration.
 MIN_RESPONSE_SECONDS = 2.0
+GENERIC_LOGIN_ERROR = "Invalid credentials, or too many attempts. Try again later."
+DUMMY_PASSWORD_HASH = generate_password_hash("unusable-login-password")
 
 
 def _is_valid_email(email: Optional[str]) -> bool:
@@ -44,6 +59,57 @@ def _get_payload_value(payload: dict, key: str) -> Optional[str]:
     return value
 
 
+def _login_failure_response():
+    """Return the generic login failure response for form and JSON clients."""
+    if request.is_json:
+        return jsonify({"error": GENERIC_LOGIN_ERROR}), 401
+    return render_template("auth/login.html", error=GENERIC_LOGIN_ERROR), 401
+
+
+def _login_lockout_state(email, user, remote_addr):
+    """Return whether the submitted email or source IP is currently locked out."""
+    now = datetime.utcnow()
+    window_start = now - timedelta(minutes=current_app.config["LOGIN_LOCKOUT_MINUTES"])
+    cutoff = window_start
+
+    if user is not None:
+        latest_successful_login = (
+            AuditLogEntry.query.filter_by(user_id=user.id, action="login")
+            .order_by(AuditLogEntry.timestamp.desc(), AuditLogEntry.id.desc())
+            .first()
+        )
+        if latest_successful_login and latest_successful_login.timestamp:
+            cutoff = max(cutoff, latest_successful_login.timestamp)
+
+    email_failures = AuditLogEntry.query.filter(
+        AuditLogEntry.action == "login_failed",
+        AuditLogEntry.attempted_identifier == email,
+        AuditLogEntry.timestamp > cutoff,
+    ).count()
+    ip_failures = AuditLogEntry.query.filter(
+        AuditLogEntry.action == "login_failed",
+        AuditLogEntry.ip_address == remote_addr,
+        AuditLogEntry.timestamp > window_start,
+    ).count()
+
+    return (
+        email_failures >= current_app.config["LOGIN_MAX_FAILURES"]
+        or ip_failures >= current_app.config["LOGIN_IP_MAX_FAILURES"]
+    )
+
+
+def _log_login_failure(email, user, details):
+    """Audit one failed login attempt with a normalized, bounded identifier."""
+    log_action(
+        user_id=user.id if user is not None else None,
+        action="login_failed",
+        target_record_type="user" if user is not None else None,
+        target_record_id=user.id if user is not None else None,
+        details=details,
+        attempted_identifier=email,
+    )
+
+
 def _landing_endpoint_for_user(user: User) -> str:
     """Route authenticated users to the most relevant landing page."""
     role_name = getattr(getattr(user, "role", None), "name", None)
@@ -53,7 +119,10 @@ def _landing_endpoint_for_user(user: User) -> str:
         return "admin.dashboard"
     if role_name in {"teacher", "school_nurse"} or institution_mode == "school":
         return "school_mode.records"
-    if role_name in {"social_worker", "legal_officer"} or institution_mode == "childrens_home":
+    if (
+        role_name in {"social_worker", "legal_officer"}
+        or institution_mode == "childrens_home"
+    ):
         return "childrens_home_mode.records"
     return "admin.dashboard"
 
@@ -62,10 +131,13 @@ def _render_reset_failure(email: Optional[str]):
     """Return the generic reset-password failure response for HTML or JSON."""
     if request.is_json:
         return jsonify({"error": RESET_PASSWORD_GENERIC_ERROR}), 400
-    return render_template(
-        "auth/reset_password.html",
-        error=RESET_PASSWORD_GENERIC_ERROR,
-    ), 400
+    return (
+        render_template(
+            "auth/reset_password.html",
+            error=RESET_PASSWORD_GENERIC_ERROR,
+        ),
+        400,
+    )
 
 
 def _latest_password_reset_otp(user_id: int) -> Optional[OTPEvent]:
@@ -95,7 +167,10 @@ def register():
         return jsonify({"error": "Password must be at least 8 characters."}), 400
 
     if not full_name or not phone_number or not role_id:
-        return jsonify({"error": "full_name, phone_number and role_id are required."}), 400
+        return (
+            jsonify({"error": "full_name, phone_number and role_id are required."}),
+            400,
+        )
 
     try:
         role_id = int(role_id)
@@ -126,39 +201,89 @@ def register():
         target_record_id=user.id,
         details=f"Created user account for {user.email}",
     )
-    return jsonify({"message": "User registered successfully.", "user_id": user.id}), 201
+    return (
+        jsonify({"message": "User registered successfully.", "user_id": user.id}),
+        201,
+    )
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    """Authenticate a user and route them to their institution mode dashboard."""
+    """Authenticate a user with lockout, timing, and portal-binding controls."""
     if request.method == "GET":
         return render_template("auth/login.html")
 
     payload = request.get_json(silent=True) or request.form
-    email = _get_payload_value(payload, "email")
-    password = _get_payload_value(payload, "password")
+    raw_email = payload.get("email")
+    email = raw_email.strip().lower() if isinstance(raw_email, str) else ""
+    raw_password = payload.get("password")
+    password = raw_password if isinstance(raw_password, str) else ""
+    portal = _get_payload_value(payload, "portal") or "school"
+    portal_valid = portal in {"school", "childrens_home"}
 
-    if not _is_valid_email(email):
-        return render_template("auth/login.html", error="Invalid email format."), 400
+    user = User.query.filter(func.lower(User.email) == email).first() if email else None
 
-    if password is None or not _is_valid_password(password):
-        return render_template(
-            "auth/login.html",
-            error="Password must be at least 8 characters.",
-        ), 400
+    if _login_lockout_state(email, user, request.remote_addr):
+        check_password_hash(DUMMY_PASSWORD_HASH, password)
+        _log_login_failure(email, user, "Login attempt blocked by lockout policy")
+        log_action(
+            user_id=user.id if user is not None else None,
+            action="login_blocked",
+            target_record_type="user" if user is not None else None,
+            target_record_id=user.id if user is not None else None,
+            details="Login attempt blocked by lockout policy",
+            attempted_identifier=email,
+        )
+        return _login_failure_response()
 
-    user = User.query.filter_by(email=email).first()
-    if not user or not check_password_hash(user.password_hash, password):
-        if user:
-            log_action(
-                user_id=user.id,
-                action="login_failed",
-                target_record_type="user",
-                target_record_id=user.id,
-                details="Failed login attempt with invalid credentials",
-            )
-        return render_template("auth/login.html", error="Invalid credentials."), 401
+    if user is None:
+        check_password_hash(DUMMY_PASSWORD_HASH, password)
+        _log_login_failure(email, None, "Failed login attempt for unknown account")
+        return _login_failure_response()
+
+    password_valid = check_password_hash(user.password_hash, password)
+    if not password_valid:
+        _log_login_failure(email, user, "Failed login attempt with invalid password")
+        return _login_failure_response()
+
+    if not user.is_active:
+        _log_login_failure(email, user, "Failed login attempt for inactive account")
+        log_action(
+            user_id=user.id,
+            action="login_denied_inactive",
+            target_record_type="user",
+            target_record_id=user.id,
+            details="Login denied because the account is inactive",
+            attempted_identifier=email,
+        )
+        return (
+            render_template(
+                "auth/login.html",
+                error="This account has been deactivated. Contact your administrator.",
+            ),
+            401,
+        )
+
+    role_name = getattr(getattr(user, "role", None), "name", None)
+    institution_mode = getattr(getattr(user, "role", None), "institution_mode", None)
+    portal_matches = (
+        portal_valid
+        and role_name != "parent_guardian"
+        and (role_name == "administrator" or institution_mode == portal)
+    )
+    if not portal_matches:
+        _log_login_failure(
+            email, user, "Login failed because the portal did not match the account"
+        )
+        log_action(
+            user_id=user.id,
+            action="login_portal_mismatch",
+            target_record_type="user",
+            target_record_id=user.id,
+            details="Login denied because the selected portal did not match the account",
+            attempted_identifier=email,
+        )
+        return _login_failure_response()
 
     login_user(user)
     log_action(
@@ -233,7 +358,9 @@ def forgot_password():
 def reset_password():
     """Verify a password reset OTP and set a new password."""
     if request.method == "GET":
-        return render_template("auth/reset_password.html", email=request.args.get("email", ""))
+        return render_template(
+            "auth/reset_password.html", email=request.args.get("email", "")
+        )
 
     start_time = time.monotonic()
 

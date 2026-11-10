@@ -3,6 +3,7 @@ Single entry point for writing audit log entries. Route handlers and
 services should call log_action() rather than constructing AuditLogEntry
 directly, so there is exactly one code path to review/test for correctness.
 """
+
 from typing import Optional
 
 from flask import request
@@ -27,7 +28,9 @@ def log_action(
 
     entry = AuditLogEntry()
     entry.user_id = user_id
-    entry.attempted_identifier = attempted_identifier
+    entry.attempted_identifier = (
+        attempted_identifier[:255] if attempted_identifier is not None else None
+    )
     entry.action = action
     entry.target_record_type = target_record_type
     entry.target_record_id = target_record_id
