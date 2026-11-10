@@ -69,6 +69,16 @@ def create_app(config_name="development"):
         )
         return redirect(request.referrer or url_for("auth.login"))
 
+    @app.get("/")
+    def index():
+        """Redirect the application root to the login page."""
+        return redirect(url_for("auth.login"))
+
+    @app.get("/favicon.ico")
+    def favicon():
+        """Redirect legacy favicon requests to the SVG favicon asset."""
+        return redirect(url_for("static", filename="favicon.svg"))
+
     # Register blueprints — each module in the proposal maps to one blueprint.
     # Keeping registration here (not scattered) gives us one place to see
     # the whole app's route surface.
