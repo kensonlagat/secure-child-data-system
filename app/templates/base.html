@@ -4,8 +4,11 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Child Data System{% endblock %}</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <script src="{{ url_for('static', filename='js/csrf.js') }}" defer></script>
 </head>
 
 <body class="{% block body_class %}{% endblock %}">
@@ -49,8 +52,10 @@
             <a class="nav-link {% if current_endpoint.startswith('childrens_home_mode.') %}is-active{% endif %}"
                 href="{{ url_for('childrens_home_mode.records') }}">My Caseload</a>
             {% elif role_name == 'legal_officer' %}
-            <a class="nav-link {% if current_endpoint.startswith('childrens_home_mode.') %}is-active{% endif %}"
-                href="{{ url_for('childrens_home_mode.records') }}">Legal Status Requests</a>
+            <a class="nav-link {% if current_endpoint == 'childrens_home_mode.legal_status_requests' %}is-active{% endif %}"
+                href="{{ url_for('childrens_home_mode.legal_status_requests') }}">Legal Status Requests</a>
+            <a class="nav-link {% if current_endpoint == 'childrens_home_mode.records' %}is-active{% endif %}"
+                href="{{ url_for('childrens_home_mode.records') }}">Records</a>
             {% endif %}
             <a class="nav-logout" href="{{ url_for('auth.logout') }}">Logout</a>
         </nav>
