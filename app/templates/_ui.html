@@ -18,6 +18,13 @@
 {# Display names for stored institution_mode values. Display only: stored values never change. #}
 {% set MODE_LABELS = {'school': 'School', 'childrens_home': "Children's Home", 'both': 'Both modes'} %}
 
+{# Columns that belong to only one mode (see the mode-specific fields in child_record.py).
+   Pages hide the other mode's columns. Display only: access_service.py decides what is sent. #}
+{% set MODE_ONLY_FIELDS = {
+'school': ['guardian_contact', 'class_assigned'],
+'childrens_home': ['legal_status', 'caseload_worker_id'],
+} %}
+
 {% macro mode_label(value) -%}
 {{ MODE_LABELS.get(value, value) }}
 {%- endmacro %}
