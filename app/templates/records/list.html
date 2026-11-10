@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 
 {% block title %}{{ page_title }} | Child Data System{% endblock %}
 
@@ -9,31 +10,39 @@
     <p class="lead">{{ page_subtitle }}</p>
 </section>
 
-<section class="panel">
+<section class="panel" aria-labelledby="records-table-title">
+    <div class="section-head">
+        <h2 id="records-table-title">{{ record_entries | length }} record{{ '' if record_entries | length == 1 else 's' }}</h2>
+        {% if visible_fields | select('in', ui.SENSITIVE_FIELDS) | list %}
+        <p class="muted">{{ ui.lock('full_name') }} Encrypted at rest</p>
+        {% endif %}
+    </div>
+
     <div id="record-action-message" class="notice" aria-live="polite" hidden></div>
 
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="records-table-title">
         <table class="data-table">
             <thead>
                 <tr>
                     {% for field_name in visible_fields %}
-                    <th>{{ field_name.replace('_', ' ') | title }}</th>
+                    <th scope="col">{{ ui.field_label(field_name) }} {{ ui.lock(field_name) }}</th>
                     {% endfor %}
-                    <th>Actions</th>
+                    <th scope="col">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for entry in record_entries %}
                 <tr>
                     {% for field_name in visible_fields %}
-                    <td>{{ entry["values"][field_name] if entry["values"][field_name] is not none else '' }}</td>
+                    {% set value = entry["values"][field_name] %}
+                    <td{% if field_name in ui.MONO_FIELDS %} class="mono"{% endif %}>{% if value is none or value == '' %}<span class="cell-empty" aria-label="Empty">&mdash;</span>{% else %}{{ value }}{% endif %}</td>
                     {% endfor %}
                     <td class="table-actions">
                         {% if entry["writable_fields"] %}
                         <a class="action-link action-link-button"
                             href="{{ edit_url_builder(entry['record'].id) }}">Edit</a>
                         {% else %}
-                        <span class="muted">Read only</span>
+                        <span class="badge">Read only</span>
                         {% endif %}
 
                         {% if current_user.role and current_user.role.name == 'administrator' %}
@@ -45,7 +54,10 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="{{ visible_fields|length + 1 }}" class="empty-state">No records available.</td>
+                    <td colspan="{{ visible_fields|length + 1 }}" class="empty-state">
+                        <strong>No records to show.</strong><br>
+                        Records appear here once they are assigned to you.
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
