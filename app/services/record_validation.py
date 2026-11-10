@@ -1,9 +1,12 @@
 """Validation for partial child-record updates."""
 
 from datetime import date
+import re
 
 from app.models.child_record import ChildRecord
 from app.models.user import User
+
+E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
 class RecordValidationError(ValueError):
@@ -30,6 +33,12 @@ def _validate_text(field_name, value, required=False):
         if required:
             raise RecordValidationError(field_name, f"{field_name} cannot be blank.")
         return None
+
+    if field_name == "guardian_contact" and not E164_PHONE_PATTERN.fullmatch(value):
+        raise RecordValidationError(
+            field_name,
+            "guardian_contact must be a valid E.164 phone number.",
+        )
 
     max_length = _column_max_length(field_name)
     if max_length is not None and len(value) > max_length:
@@ -87,5 +96,7 @@ def validate_record_updates(payload):
                         "caseload_worker_id must reference an active social_worker.",
                     )
             validated[field_name] = value
+        else:
+            raise RecordValidationError(field_name, f"{field_name} cannot be updated.")
 
     return validated

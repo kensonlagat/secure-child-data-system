@@ -58,3 +58,14 @@ def test_administrator_writable_fields_use_explicit_allowlist():
     )
 
     assert fields == ADMIN_ALLOWLIST
+
+
+def test_teacher_writable_fields_only_include_guardian_contact(monkeypatch):
+    monkeypatch.setattr(access_service, "can_access_record", lambda user, record: True)
+
+    fields = access_service.get_writable_fields(
+        _user("teacher"),
+        SimpleNamespace(institution_mode="school"),
+    )
+
+    assert fields == ["guardian_contact"]

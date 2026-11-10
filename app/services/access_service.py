@@ -134,7 +134,7 @@ def get_writable_fields(user, record):
     if role_name == "teacher":
         if not can_access_record(user, record):
             return []
-        return ["guardian_contact", "class_assigned"]
+        return ["guardian_contact"]
 
     if role_name == "school_nurse":
         if getattr(record, "institution_mode", None) != "school":
