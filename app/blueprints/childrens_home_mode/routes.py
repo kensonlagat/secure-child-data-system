@@ -7,6 +7,7 @@ Scope per proposal:
 - Legal status changes require two-person approval before saving
 - Optional academic module for homes running internal schools
 """
+
 from datetime import datetime
 
 from flask import Blueprint, abort, jsonify, render_template, request, url_for
@@ -15,7 +16,10 @@ from flask_login import current_user, login_required
 from app import db
 from app.middleware.rbac import require_role
 from app.models.child_record import ChildRecord
-from app.models.legal_status_change_request import LegalStatusChangeRequest, VALID_LEGAL_STATUSES
+from app.models.legal_status_change_request import (
+    LegalStatusChangeRequest,
+    VALID_LEGAL_STATUSES,
+)
 from app.services.access_service import (
     can_access_record,
     get_accessible_records,
@@ -24,6 +28,10 @@ from app.services.access_service import (
 )
 from app.services.audit_service import log_action
 from app.services.otp_service import generate_otp, verify_otp
+from app.services.record_validation import (
+    RecordValidationError,
+    validate_record_updates,
+)
 from app.services.sms_service import send_sms
 
 home_bp = Blueprint("childrens_home_mode", __name__, template_folder="../../templates")
@@ -76,12 +84,22 @@ def _serialize_legal_status_request(change_request):
     return {
         "id": change_request.id,
         "child_record_id": change_request.child_record_id,
-        "child_name": change_request.child_record.full_name if change_request.child_record else "",
+        "child_name": (
+            change_request.child_record.full_name if change_request.child_record else ""
+        ),
         "current_status": change_request.current_status,
         "requested_status": change_request.requested_status,
         "status": change_request.status,
-        "requested_by": change_request.requested_by_user.full_name if change_request.requested_by_user else "",
-        "approved_by": change_request.approved_by_user.full_name if change_request.approved_by_user else "",
+        "requested_by": (
+            change_request.requested_by_user.full_name
+            if change_request.requested_by_user
+            else ""
+        ),
+        "approved_by": (
+            change_request.approved_by_user.full_name
+            if change_request.approved_by_user
+            else ""
+        ),
     }
 
 
@@ -110,7 +128,10 @@ def records():
         details="Viewed scoped children's home child records",
     )
 
-    wants_html = request.accept_mimetypes.best_match(["text/html", "application/json"]) == "text/html"
+    wants_html = (
+        request.accept_mimetypes.best_match(["text/html", "application/json"])
+        == "text/html"
+    )
     if wants_html:
         return render_template(
             "records/list.html",
@@ -119,7 +140,9 @@ def records():
             page_subtitle="Your scoped children's-home child records.",
             visible_fields=visible_fields,
             record_entries=record_entries,
-            edit_url_builder=lambda record_id: url_for("childrens_home_mode.edit_record", record_id=record_id),
+            edit_url_builder=lambda record_id: url_for(
+                "childrens_home_mode.edit_record", record_id=record_id
+            ),
         )
 
     return jsonify([entry["values"] for entry in record_entries])
@@ -130,13 +153,10 @@ def records():
 @require_role("legal_officer", "administrator")
 def legal_status_requests():
     """Render the legal status workflow page."""
-    change_requests = (
-        LegalStatusChangeRequest.query.order_by(
-            LegalStatusChangeRequest.created_at.desc(),
-            LegalStatusChangeRequest.id.desc(),
-        )
-        .all()
-    )
+    change_requests = LegalStatusChangeRequest.query.order_by(
+        LegalStatusChangeRequest.created_at.desc(),
+        LegalStatusChangeRequest.id.desc(),
+    ).all()
     visible_requests = [
         _serialize_legal_status_request(change_request)
         for change_request in change_requests
@@ -204,19 +224,38 @@ def update_record(record_id):
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict) or not payload:
-        return jsonify({"error": "Request JSON must include at least one updatable field."}), 400
-
-    rejected_fields = sorted([field_name for field_name in payload.keys() if field_name not in writable_fields])
-    if rejected_fields:
         return (
-            jsonify({
-                "error": "Request contained field(s) this role cannot update.",
-                "rejected_fields": rejected_fields,
-            }),
+            jsonify(
+                {"error": "Request JSON must include at least one updatable field."}
+            ),
             400,
         )
 
-    valid_updates = {field_name: payload[field_name] for field_name in payload.keys() if field_name in writable_fields}
+    rejected_fields = sorted(
+        [
+            field_name
+            for field_name in payload.keys()
+            if field_name not in writable_fields
+        ]
+    )
+    if rejected_fields:
+        return (
+            jsonify(
+                {
+                    "error": "Request contained field(s) this role cannot update.",
+                    "rejected_fields": rejected_fields,
+                }
+            ),
+            400,
+        )
+
+    try:
+        valid_updates = validate_record_updates(
+            {field_name: payload[field_name] for field_name in payload.keys()}
+        )
+    except RecordValidationError as error:
+        return jsonify({"error": str(error), "field": error.field_name}), 400
+
     if not valid_updates:
         return jsonify({"error": "Request contained no valid writable fields."}), 400
 
@@ -239,7 +278,9 @@ def update_record(record_id):
         details=f"Updated fields: {', '.join(changed_fields)}",
     )
 
-    return jsonify({"message": "Record updated successfully.", "updated_fields": changed_fields})
+    return jsonify(
+        {"message": "Record updated successfully.", "updated_fields": changed_fields}
+    )
 
 
 @home_bp.route("/legal-status/<int:record_id>/request-change", methods=["POST"])
@@ -268,7 +309,9 @@ def request_legal_status_change(record_id):
         )
 
     try:
-        otp_event = generate_otp(current_user, "legal_status_change", target_record_id=record.id)
+        otp_event = generate_otp(
+            current_user, "legal_status_change", target_record_id=record.id
+        )
     except Exception:
         _log_and_abort(
             500,
@@ -299,7 +342,9 @@ def request_legal_status_change(record_id):
     return jsonify({"change_request_id": change_request.id}), 201
 
 
-@home_bp.route("/legal-status/confirm-request/<int:change_request_id>", methods=["POST"])
+@home_bp.route(
+    "/legal-status/confirm-request/<int:change_request_id>", methods=["POST"]
+)
 @login_required
 @require_role("legal_officer", "administrator")
 def confirm_legal_status_request(change_request_id):
@@ -325,7 +370,10 @@ def confirm_legal_status_request(change_request_id):
             target_record_id=change_request.child_record_id,
         )
 
-    if change_request.status != "pending_otp" or change_request.requester_otp_event is None:
+    if (
+        change_request.status != "pending_otp"
+        or change_request.requester_otp_event is None
+    ):
         _log_and_abort(
             400,
             "legal_status_change_otp_failed",
@@ -352,7 +400,9 @@ def confirm_legal_status_request(change_request_id):
         details=f"Requester OTP verified for legal status change request {change_request.id}",
     )
 
-    return jsonify({"change_request_id": change_request.id, "status": change_request.status})
+    return jsonify(
+        {"change_request_id": change_request.id, "status": change_request.status}
+    )
 
 
 @home_bp.route("/legal-status/approve/<int:change_request_id>", methods=["POST"])
@@ -380,7 +430,9 @@ def request_legal_status_approval(change_request_id):
         )
 
     try:
-        otp_event = generate_otp(current_user, "legal_status_change_approval", target_record_id=record.id)
+        otp_event = generate_otp(
+            current_user, "legal_status_change_approval", target_record_id=record.id
+        )
     except Exception:
         _log_and_abort(
             500,
@@ -409,7 +461,9 @@ def request_legal_status_approval(change_request_id):
     )
 
 
-@home_bp.route("/legal-status/confirm-approval/<int:change_request_id>", methods=["POST"])
+@home_bp.route(
+    "/legal-status/confirm-approval/<int:change_request_id>", methods=["POST"]
+)
 @login_required
 @require_role("legal_officer", "administrator")
 def confirm_legal_status_approval(change_request_id):
@@ -436,7 +490,10 @@ def confirm_legal_status_approval(change_request_id):
             target_record_id=record.id,
         )
 
-    if change_request.status != "pending_approval" or change_request.approver_otp_event is None:
+    if (
+        change_request.status != "pending_approval"
+        or change_request.approver_otp_event is None
+    ):
         _log_and_abort(
             400,
             "legal_status_change_approval_otp_failed",
@@ -466,7 +523,9 @@ def confirm_legal_status_approval(change_request_id):
         details=f"Legal status changed from {old_status} to {change_request.requested_status}",
     )
 
-    return jsonify({"change_request_id": change_request.id, "status": change_request.status})
+    return jsonify(
+        {"change_request_id": change_request.id, "status": change_request.status}
+    )
 
 
 @home_bp.route("/legal-status/reject/<int:change_request_id>", methods=["POST"])
@@ -505,4 +564,6 @@ def reject_legal_status_change(change_request_id):
         details=f"Legal status change request {change_request.id} rejected",
     )
 
-    return jsonify({"change_request_id": change_request.id, "status": change_request.status})
+    return jsonify(
+        {"change_request_id": change_request.id, "status": change_request.status}
+    )

@@ -7,6 +7,7 @@ Scope per proposal:
 - Admin staff: fee records + general info
 - Parents: SMS notification on record access/modification
 """
+
 from flask import Blueprint, abort, jsonify, render_template, request, url_for
 from flask_login import current_user, login_required
 
@@ -19,6 +20,10 @@ from app.services.access_service import (
     get_writable_fields,
 )
 from app.services.audit_service import log_action
+from app.services.record_validation import (
+    RecordValidationError,
+    validate_record_updates,
+)
 from app.services.sms_service import send_sms
 
 school_bp = Blueprint("school_mode", __name__, template_folder="../../templates")
@@ -71,7 +76,10 @@ def records():
         details="Viewed scoped school mode child records",
     )
 
-    wants_html = request.accept_mimetypes.best_match(["text/html", "application/json"]) == "text/html"
+    wants_html = (
+        request.accept_mimetypes.best_match(["text/html", "application/json"])
+        == "text/html"
+    )
     if wants_html:
         return render_template(
             "records/list.html",
@@ -80,7 +88,9 @@ def records():
             page_subtitle="Your scoped school-mode child records.",
             visible_fields=visible_fields,
             record_entries=record_entries,
-            edit_url_builder=lambda record_id: url_for("school_mode.edit_record", record_id=record_id),
+            edit_url_builder=lambda record_id: url_for(
+                "school_mode.edit_record", record_id=record_id
+            ),
         )
 
     return jsonify([entry["values"] for entry in record_entries])
@@ -135,19 +145,38 @@ def update_record(record_id):
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict) or not payload:
-        return jsonify({"error": "Request JSON must include at least one updatable field."}), 400
-
-    rejected_fields = sorted([field_name for field_name in payload.keys() if field_name not in writable_fields])
-    if rejected_fields:
         return (
-            jsonify({
-                "error": "Request contained field(s) this role cannot update.",
-                "rejected_fields": rejected_fields,
-            }),
+            jsonify(
+                {"error": "Request JSON must include at least one updatable field."}
+            ),
             400,
         )
 
-    valid_updates = {field_name: payload[field_name] for field_name in payload.keys() if field_name in writable_fields}
+    rejected_fields = sorted(
+        [
+            field_name
+            for field_name in payload.keys()
+            if field_name not in writable_fields
+        ]
+    )
+    if rejected_fields:
+        return (
+            jsonify(
+                {
+                    "error": "Request contained field(s) this role cannot update.",
+                    "rejected_fields": rejected_fields,
+                }
+            ),
+            400,
+        )
+
+    try:
+        valid_updates = validate_record_updates(
+            {field_name: payload[field_name] for field_name in payload.keys()}
+        )
+    except RecordValidationError as error:
+        return jsonify({"error": str(error), "field": error.field_name}), 400
+
     if not valid_updates:
         return jsonify({"error": "Request contained no valid writable fields."}), 400
 
@@ -186,4 +215,6 @@ def update_record(record_id):
                 details="Failed to send guardian SMS notification after record update.",
             )
 
-    return jsonify({"message": "Record updated successfully.", "updated_fields": changed_fields})
+    return jsonify(
+        {"message": "Record updated successfully.", "updated_fields": changed_fields}
+    )
