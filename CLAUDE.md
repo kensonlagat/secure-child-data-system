@@ -53,9 +53,9 @@ anomaly detection. Never trade these away for convenience.
 9. Use `require_role()` and `@login_required` for protected routes.
 10. Anomaly detection is alert-only and never blocks. Models are trained on synthetic data only.
     Real data is scored but never trained on.
-11. The web app currently connects as the `postgres` superuser. The least-privilege DB role and
-    row-level security are NOT built yet (issue #19). Do not describe the audit log as
-    database-enforced until they are.
+11. The web app currently connects as the `postgres` superuser. The least-privilege DB role
+    (issue #72) and row-level security (issue #19) are NOT built yet. Do not describe the audit
+    log as database-enforced until #72 is merged.
 
 ## Stack and commands (Windows, PowerShell)
 Python 3.12.10, Flask 3.0.3 app factory + blueprints, SQLAlchemy/Flask-Migrate, Flask-Login,
@@ -98,32 +98,39 @@ environment workaround). Local machine notes, including how to start PostgreSQL,
 ## Current state
 Done: authentication, RBAC with field scoping, record create/update, OTP soft-delete,
 two-person legal-status workflow, forgot password, CSRF, SMS service, dashboard UI, anomaly
-pipeline. PR #38 (login hardening) is open and needs a follow-up commit (see below).
+pipeline.
+
+In review (open PRs, merge in this order: #38 → #41 → #42 → #44 → #46):
+- #38 login hardening. The follow-up is done: portal-mismatch, parent and inactive denials
+  no longer write `login_failed` or count toward lockout; blocked attempts write only
+  `login_blocked`; `LOGIN_IP_MAX_FAILURES` is 100; timing rerun recorded in the PR.
+  Security tier, awaiting lead engineer review.
+- #41 this file. #42 regression test for empty-string record updates (#40 closed as not
+  reproducible).
+- #44 UI foundation ("safeguarding ledger" design, landing page, new layout), stacked on #38.
+  No security-tier files.
+- #46 administrators see one portal at a time and can switch without signing out (display
+  only), stacked on #44. Security tier (`auth/routes.py`), awaiting lead engineer review.
+
 Unconfirmed: whether PR #37 (SMS diagnostics) is merged, the OTP deletion test on record 43,
 and the guardian SMS appearing in the simulator.
-
-Follow-up for PR #38 (`feature/login-hardening`): portal mismatch and inactive-account
-handling happen after the password verifies, so they must NOT write `login_failed` rows or
-count toward lockout. Staff mismatch message: "This account doesn't belong to the selected
-portal. Choose the other portal and try again." Parent accounts on the staff form:
-"Parent accounts use the parent sign-in." Raise `LOGIN_IP_MAX_FAILURES` to 100 (coarse flood
-guard for shared networks). Add tests, and rerun the timing comparison with a real account
-(`synthetic.teacher.02@example.com`), an unknown email and a locked account.
 
 ## Roadmap (in order)
 The build order lives in tracking issue #71 (agreed 2026-11-11). Check it off as PRs merge.
 0. Merge the open stack first: #38 → #44 → #46 (plus #41, #42). Feature work builds on the new
    layout and the School/Children's Home separation.
-1. Foundations: user management (#30), new roles (#47), classes and enrolment (#48), fuller
-   child profile (#49), search and pagination (#32).
-2. School daily work: attendance (#50), pickup list (#51), clinic log (#52), principal overview (#53).
-3. Children's home: intake (#54), care plan and case notes (#55), court dates (#56), health and
+1. Foundations: user management (#30), new roles and safeguarding-lead flag (#47),
+   least-privilege DB role (#72, right after #47), classes and enrolment (#48), fuller child
+   profile (#49), search and pagination (#32).
+2. Safeguarding and consent: safeguarding concerns (#62; admins see metadata only, every
+   narrative read audited), consent (#63).
+3. School daily work: attendance (#50), pickup list (#51), clinic log (#52), principal overview (#53).
+4. Children's home: intake (#54), care plan and case notes (#55), court dates (#56), health and
    medication (#57), family visits (#58), placement and aftercare (#59), missing child alert
    (#60), home manager overview (#61).
-4. Safeguarding and record life cycle: safeguarding concerns (#62), consent (#63), archiving
-   (#64), OTP-protected export (#65), document storage (#66).
-5. Parents and hardening: parent sign-in (#67), staff second sign-in step (#68), audit log
-   viewer (#31), least-privilege DB role and RLS (#19), backups (#69), report cards (#70).
+5. Record life cycle: archiving (#64), OTP-protected export (#65), document storage (#66).
+6. Parents and hardening: parent sign-in (#67), staff second sign-in step (#68), audit log
+   viewer (#31), backups (#69), report cards (#70), row-level security (#19, last).
 Ongoing: tests in every PR (#33), notifications (#20), report (#21). Left out on purpose: fees,
 timetables, library, transport, payroll, biometrics.
 
