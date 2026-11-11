@@ -111,12 +111,21 @@ guard for shared networks). Add tests, and rerun the timing comparison with a re
 (`synthetic.teacher.02@example.com`), an unknown email and a locked account.
 
 ## Roadmap (in order)
-1. Finish PR #38. 2. Landing/portal pages and the new roles. 3. Guardian links, parent OTP
-login and a parent read-only view (strictest review). 4. One role module per PR (teacher
-attendance and marks, clinical visits, principal overview, home welfare notes and court dates).
-5. Admin user-management UI, audit log viewer (admin only, filters, pagination), record
-search and pagination. 6. Automated tests (#33). 7. Least-privilege DB role and RLS (#19).
-8. Notifications (#20). 9. Report (#21).
+The build order lives in tracking issue #71 (agreed 2026-11-11). Check it off as PRs merge.
+0. Merge the open stack first: #38 → #44 → #46 (plus #41, #42). Feature work builds on the new
+   layout and the School/Children's Home separation.
+1. Foundations: user management (#30), new roles (#47), classes and enrolment (#48), fuller
+   child profile (#49), search and pagination (#32).
+2. School daily work: attendance (#50), pickup list (#51), clinic log (#52), principal overview (#53).
+3. Children's home: intake (#54), care plan and case notes (#55), court dates (#56), health and
+   medication (#57), family visits (#58), placement and aftercare (#59), missing child alert
+   (#60), home manager overview (#61).
+4. Safeguarding and record life cycle: safeguarding concerns (#62), consent (#63), archiving
+   (#64), OTP-protected export (#65), document storage (#66).
+5. Parents and hardening: parent sign-in (#67), staff second sign-in step (#68), audit log
+   viewer (#31), least-privilege DB role and RLS (#19), backups (#69), report cards (#70).
+Ongoing: tests in every PR (#33), notifications (#20), report (#21). Left out on purpose: fees,
+timetables, library, transport, payroll, biometrics.
 
 ## Known limitations (keep honest in the report)
 - OTP attempt limit is per code, not per account. `/forgot-password` has no rate limit (#25).
