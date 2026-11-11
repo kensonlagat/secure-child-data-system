@@ -10,13 +10,19 @@ Rules enforced on the server (the UI only mirrors them):
   active administrator cannot be deactivated.
 - Role and phone number of an administrator account cannot be changed here (a phone
   change would redirect that administrator's reset codes).
+- Changing any other account's phone number needs an OTP sent to the acting administrator,
+  bound to the target account and to the new number (change_phone). Otherwise someone
+  holding only an admin session could point a safeguarding lead's phone at their own,
+  use Forgot password, and receive the reset code.
 - Every change is audited, with field names only, never values such as phone numbers.
 """
 
+import hashlib
+import hmac
 import re
 import secrets
 
-from flask import abort, flash, redirect, render_template, request, url_for
+from flask import abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from werkzeug.security import generate_password_hash
 
@@ -31,6 +37,7 @@ from app.services.otp_service import generate_otp, verify_otp
 
 E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 GRANT_ADMIN_CONTEXT = "grant_admin"
+CHANGE_PHONE_CONTEXT_PREFIX = "change_phone:"
 ACCOUNT_SETUP_CONTEXT = "password_reset"  # completed on the existing reset page
 NON_STAFF_ROLES = {"parent_guardian"}  # parents get their own sign-in later (#67)
 
@@ -96,6 +103,56 @@ def _start_admin_grant(user):
         return redirect(url_for("admin.list_users"))
     _audit("admin_grant_requested", user.id, "OTP sent to activate an administrator account")
     return redirect(url_for("admin.grant_admin", user_id=user.id))
+
+
+def _change_phone_context(new_phone):
+    """OTP context for changing a phone number, bound to the new number.
+
+    A code issued for one number can't then be used to set a different one. The number is
+    stored only as a keyed hash: a plain hash of a phone number can be reversed by trying
+    every number, and OTP rows must not hold phone numbers.
+    """
+    digest = hmac.new(
+        current_app.config["SECRET_KEY"].encode(), f"change_phone|{new_phone}".encode(), hashlib.sha256
+    ).hexdigest()
+    return CHANGE_PHONE_CONTEXT_PREFIX + digest[:32]
+
+
+def _render_user_form(user, *, values, errors, otp_pending=False):
+    return render_template(
+        "admin/users/form.html", roles=_staff_roles(), user=user, values=values, errors=errors,
+        otp_pending=otp_pending,
+    )
+
+
+def _start_phone_change(user, context):
+    """Send the acting administrator an OTP for this phone change. Nothing is saved yet."""
+    try:
+        generate_otp(current_user, context, target_record_id=user.id)
+    except Exception:
+        _audit("phone_change_otp_send_failed", user.id, "Could not send the OTP to change a phone number")
+        return _render_user_form(
+            user, values=request.form,
+            errors={"phone_number": "The verification code could not be sent, so nothing was saved."},
+        ), 503
+    _audit("phone_change_requested", user.id, "OTP sent to the acting administrator to change a phone number")
+    return _render_user_form(user, values=request.form, errors={}, otp_pending=True)
+
+
+def _phone_change_verified(user, context, otp_code):
+    otp_event = (
+        OTPEvent.query.filter_by(user_id=current_user.id, action_context=context, target_record_id=user.id)
+        .order_by(OTPEvent.id.desc())
+        .first()
+    )
+    return (
+        otp_event is not None
+        and otp_event.user_id == current_user.id  # identity-bound, checked explicitly
+        and otp_event.target_record_id == user.id  # bound to this account
+        and isinstance(otp_code, str)
+        and bool(otp_code.strip())
+        and verify_otp(otp_event, otp_code.strip())  # expiry, attempts and single use
+    )
 
 
 def _clean(value):
@@ -274,9 +331,22 @@ def edit_user(user_id):
         elif _is_admin(user) and data["phone_number"] != user.phone_number:
             errors["phone_number"] = "An administrator's phone number can't be changed here."
     if errors:
-        return render_template(
-            "admin/users/form.html", roles=_staff_roles(), user=user, values=request.form, errors=errors
-        ), 400
+        return _render_user_form(user, values=request.form, errors=errors), 400
+
+    # A phone change saves nothing until the acting administrator confirms an OTP. The first
+    # submit (no otp_code field, or "Send a new code") sends the code; the resubmit with the
+    # code applies every change in the form together.
+    phone_changed = data["phone_number"] != user.phone_number
+    if phone_changed:
+        context = _change_phone_context(data["phone_number"])
+        if "otp_code" not in request.form or request.form.get("resend"):
+            return _start_phone_change(user, context)
+        if not _phone_change_verified(user, context, request.form.get("otp_code")):
+            _audit("phone_change_otp_failed", user.id, "OTP verification failed while changing a phone number")
+            return _render_user_form(
+                user, values=request.form, otp_pending=True,
+                errors={"otp_code": "The code is not valid. Send a new code if needed."},
+            ), 400
 
     changed = []
     for field in ("full_name", "phone_number", "assigned_class"):
@@ -289,7 +359,10 @@ def edit_user(user_id):
     if not changed:
         flash("No changes to save.", "info")
         return redirect(url_for("admin.list_users"))
-    db.session.commit()
+    # No separate commit: log_action() commits these changes together with the first audit
+    # row, so a phone change is never saved without its phone_changed row.
+    if phone_changed:
+        _audit("phone_changed", user.id, "Phone number changed after OTP verification")
     _audit("user_updated", user.id, f"Updated fields: {', '.join(changed)}")
     flash(f"Saved changes to {user.full_name}.", "success")
     return redirect(url_for("admin.list_users"))

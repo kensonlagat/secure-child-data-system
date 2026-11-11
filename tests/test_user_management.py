@@ -1,6 +1,6 @@
 """Administrator user management (#30)."""
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pytest
 from cryptography.fernet import Fernet
@@ -301,9 +301,10 @@ def test_edit_is_audited_with_field_names_only(app, sms):
     admin = sign_in(app.test_client())
     teacher_id = app.config["IDS"]["teacher"]
 
-    admin.post(f"/admin/users/{teacher_id}/edit", data={
-        "full_name": "Renamed", "phone_number": "+254722222222",
-        "role_id": str(app.config["IDS"]["roles"]["teacher"]), "assigned_class": "Grade 7C"})
+    form = {"full_name": "Renamed", "phone_number": "+254722222222",
+            "role_id": str(app.config["IDS"]["roles"]["teacher"]), "assigned_class": "Grade 7C"}
+    admin.post(f"/admin/users/{teacher_id}/edit", data=form)  # phone change: sends a code first
+    admin.post(f"/admin/users/{teacher_id}/edit", data={**form, "otp_code": sms[-1][1]})
 
     entry = audit(app, "user_updated")[0]
     assert entry.details == "Updated fields: full_name, phone_number, assigned_class"
@@ -378,3 +379,189 @@ def test_users_page_lists_staff_and_hides_actions_on_own_row(app):
     assert "Your own account" in html
     assert f'data-safeguarding-user="{app.config["IDS"]["admin"]}"' not in html
     assert "<script>" not in html  # no inline script
+
+
+# --- Phone number changes need an OTP sent to the acting administrator ------------
+
+ADMIN_PHONE = "+254700000001"
+TEACHER_PHONE = "+254700000002"
+NEW_PHONE = "+254733333333"
+
+
+def teacher_form(app, **overrides):
+    data = {"full_name": "Test teacher", "phone_number": NEW_PHONE,
+            "role_id": str(app.config["IDS"]["roles"]["teacher"]), "assigned_class": "Grade 6A"}
+    data.update(overrides)
+    return data
+
+
+@pytest.fixture()
+def admin_client(app, sms):
+    client = sign_in(app.test_client())
+    client.sms = sms
+    return client
+
+
+def request_phone_change(app, client, user_id=None, **overrides):
+    """First submit: sends the code to the acting admin. Returns that code."""
+    user_id = user_id or app.config["IDS"]["teacher"]
+    response = client.post(f"/admin/users/{user_id}/edit", data=teacher_form(app, **overrides))
+    assert response.status_code == 200
+    assert b'name="otp_code"' in response.data
+    return [code for phone, code in client.sms if phone == ADMIN_PHONE][-1]
+
+
+def wrong_code(code):
+    return "000000" if code != "000000" else "111111"
+
+
+def teacher_phone(app):
+    return get_user(app, "teacher@example.com").phone_number
+
+
+def test_phone_change_without_a_code_saves_nothing_and_sends_the_admin_a_code(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, full_name="Renamed"))
+
+    assert response.status_code == 200
+    assert teacher_phone(app) == TEACHER_PHONE
+    assert get_user(app, "teacher@example.com").full_name == "Test teacher"  # nothing else saved either
+    assert [phone for phone, _ in admin_client.sms] == [ADMIN_PHONE]  # not the old or new number
+    assert len(audit(app, "phone_change_requested")) == 1
+    assert audit(app, "user_updated") == []
+
+
+def test_phone_change_with_a_blank_code_is_refused(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+    request_phone_change(app, admin_client)
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code=""))
+
+    assert response.status_code == 400
+    assert teacher_phone(app) == TEACHER_PHONE
+    assert len(audit(app, "phone_change_otp_failed")) == 1
+
+
+def test_phone_change_with_the_admins_code_succeeds_and_is_audited(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+    code = request_phone_change(app, admin_client)
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code=code))
+
+    assert response.status_code == 302
+    assert teacher_phone(app) == NEW_PHONE
+    assert len(audit(app, "phone_changed")) == 1
+    assert audit(app, "user_updated")[0].details == "Updated fields: phone_number"
+
+
+def test_code_issued_for_another_account_is_refused(app, admin_client):
+    with app.app_context():
+        other = User(email="sw@example.com", full_name="Social worker", phone_number="+254700000005",
+                     password_hash=generate_password_hash(PASSWORD),
+                     role_id=app.config["IDS"]["roles"]["social_worker"], is_active=True)
+        db.session.add(other)
+        db.session.commit()
+        other_id = other.id
+    code = request_phone_change(app, admin_client)  # issued for the teacher's account
+
+    response = admin_client.post(f"/admin/users/{other_id}/edit", data={
+        "full_name": "Social worker", "phone_number": NEW_PHONE, "otp_code": code,
+        "role_id": str(app.config["IDS"]["roles"]["social_worker"])})
+
+    assert response.status_code == 400
+    assert get_user(app, "sw@example.com").phone_number == "+254700000005"
+    assert len(audit(app, "phone_change_otp_failed")) == 1
+
+
+def test_code_issued_for_a_different_new_number_is_refused(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+    code = request_phone_change(app, admin_client)  # for NEW_PHONE
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit",
+                                 data=teacher_form(app, phone_number="+254744444444", otp_code=code))
+
+    assert response.status_code == 400
+    assert teacher_phone(app) == TEACHER_PHONE
+
+
+def test_expired_code_is_refused(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+    code = request_phone_change(app, admin_client)
+    with app.app_context():
+        otp = OTPEvent.query.order_by(OTPEvent.id.desc()).first()
+        otp.expires_at = datetime.utcnow() - timedelta(seconds=1)
+        db.session.commit()
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code=code))
+
+    assert response.status_code == 400
+    assert teacher_phone(app) == TEACHER_PHONE
+
+
+def test_used_code_cannot_be_replayed(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+    code = request_phone_change(app, admin_client)
+    assert admin_client.post(f"/admin/users/{teacher_id}/edit",
+                             data=teacher_form(app, otp_code=code)).status_code == 302
+    with app.app_context():  # put the old number back, then try the same code again
+        db.session.get(User, teacher_id).phone_number = TEACHER_PHONE
+        db.session.commit()
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code=code))
+
+    assert response.status_code == 400
+    assert teacher_phone(app) == TEACHER_PHONE
+
+
+def test_phone_change_code_locks_after_five_wrong_attempts(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+    code = request_phone_change(app, admin_client)
+    for _ in range(5):
+        admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code=wrong_code(code)))
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code=code))
+
+    assert response.status_code == 400
+    assert teacher_phone(app) == TEACHER_PHONE
+
+
+def test_unchanged_phone_needs_no_code(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit",
+                                 data=teacher_form(app, phone_number=TEACHER_PHONE, full_name="Renamed"))
+
+    assert response.status_code == 302
+    assert get_user(app, "teacher@example.com").full_name == "Renamed"
+    assert admin_client.sms == []
+    assert audit(app, "phone_change_requested") == []
+
+
+def test_phone_change_send_failure_saves_nothing_and_is_audited(app, admin_client, monkeypatch):
+    def broken(phone_number, message):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr("app.services.otp_service.send_sms", broken)
+    teacher_id = app.config["IDS"]["teacher"]
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app))
+
+    assert response.status_code == 503
+    assert teacher_phone(app) == TEACHER_PHONE
+    assert len(audit(app, "phone_change_otp_send_failed")) == 1
+
+
+def test_phone_numbers_never_appear_in_audit_rows_or_otp_contexts(app, admin_client):
+    teacher_id = app.config["IDS"]["teacher"]
+    code = request_phone_change(app, admin_client)
+    admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code=wrong_code(code)))
+    code = request_phone_change(app, admin_client)
+    admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code=code))
+    assert teacher_phone(app) == NEW_PHONE
+
+    with app.app_context():
+        texts = [entry.details or "" for entry in AuditLogEntry.query.all()]
+        texts += [otp.action_context for otp in OTPEvent.query.all()]
+    for number in (TEACHER_PHONE, NEW_PHONE, NEW_PHONE.lstrip("+"), "733333333"):
+        assert not any(number in text for text in texts)

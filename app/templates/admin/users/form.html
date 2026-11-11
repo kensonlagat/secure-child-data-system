@@ -28,6 +28,9 @@
 <section class="panel">
     {% if errors %}
     <div class="notice error" role="alert">Please fix the highlighted fields.</div>
+    {% elif otp_pending %}
+    <div class="notice info" role="status">Changing a phone number needs a code. We sent one to your phone.
+        Nothing is saved until you enter it.</div>
     {% endif %}
 
     <form method="post" class="form-grid two-col"
@@ -56,10 +59,12 @@
             <span class="field-label">Phone (international format)</span>
             <input id="phone_number" name="phone_number" required placeholder="+254712345678" autocomplete="off"
                 value="{{ value('phone_number', user.phone_number if editing else '') }}"
-                {% if editing_admin %}readonly aria-describedby="phone-help" {% endif %}
+                {% if editing_admin or otp_pending %}readonly aria-describedby="phone-help" {% endif %}
                 {% if errors.get('phone_number') %}aria-invalid="true" {% endif %}>
             {% if editing_admin %}<span class="field-help" id="phone-help">An administrator's phone can't be changed
-                here: codes for that account are sent to it.</span>{% endif %}
+                here: codes for that account are sent to it.</span>
+            {% elif otp_pending %}<span class="field-help" id="phone-help">To use a different number, cancel and
+                start again.</span>{% endif %}
             {{ error('phone_number') }}
         </label>
 
@@ -83,8 +88,21 @@
             {{ error('assigned_class') }}
         </label>
 
+        {% if otp_pending %}
+        <label class="field-group" for="otp_code">
+            <span class="field-label">Code sent to your phone</span>
+            <input id="otp_code" name="otp_code" required inputmode="numeric" autocomplete="one-time-code"
+                maxlength="10" autofocus
+                {% if errors.get('otp_code') %}aria-invalid="true" aria-describedby="otp_code-error" {% endif %}>
+            {{ error('otp_code') }}
+        </label>
+        {% endif %}
+
         <div class="form-actions">
             <button type="submit" class="primary-button">{{ 'Save changes' if editing else 'Create account' }}</button>
+            {% if otp_pending %}
+            <button type="submit" class="secondary-button" name="resend" value="1" formnovalidate>Send a new code</button>
+            {% endif %}
             <a class="secondary-button" href="{{ url_for('admin.list_users') }}">Cancel</a>
         </div>
     </form>
