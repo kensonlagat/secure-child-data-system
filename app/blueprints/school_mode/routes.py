@@ -11,6 +11,7 @@ from flask import Blueprint, abort, jsonify, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app import db
+from app.middleware.rbac import audit_access_denied
 from app.models.child_record import ChildRecord
 from app.services.access_service import (
     can_access_record,
@@ -36,12 +37,12 @@ def require_record_access(record_id):
     if record is None:
         abort(404)
     if not can_access_record(current_user, record):
-        log_action(
-            user_id=current_user.id,
-            action="access_denied",
+        # Bounded (one row per user, record and minute) and never blocks the 403 (#75).
+        audit_access_denied(
+            "Denied child record access in school mode",
+            status_code=403,
             target_record_type="child_record",
             target_record_id=record_id,
-            details="Denied child record access in school mode",
         )
         abort(403)
     return record
