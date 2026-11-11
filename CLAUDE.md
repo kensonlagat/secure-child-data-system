@@ -8,7 +8,15 @@ anomaly detection. Never trade these away for convenience.
 ## Working agreement
 - The user is a student. Explain security-relevant decisions briefly and plainly.
 - One task per branch. Branch from updated `main`, commit in small steps, open a PR with
-  `gh pr create`. NEVER merge a PR. The user merges.
+  `gh pr create`. Merge with a merge commit (`gh pr merge <n> --merge`), never squash, so
+  stacked PRs keep a clean diff.
+- Merge rule. Claude Code may merge a PR itself only when one of these is true:
+  (a) `gh pr diff <n> --name-only` shows no security-tier files AND the full test suite
+  passes on the branch; or (b) the user has said "approved #N" in the current session
+  (for security-tier PRs, that comes after the lead engineer's review). Never merge a
+  security-tier PR on your own judgement. Merge one PR at a time, in stack order. After each
+  merge: `git checkout main; git pull`, run the full suite, and stop and tell the user if
+  anything fails. Report one line per merge: merged, tests passed or failed.
 - Every task has a GitHub issue. Use "Refs #N" in commits and "Closes #N" in the PR body.
   Assign new issues to milestone 7 with
   `gh api -X PATCH repos/kensonlagat/secure-child-data-system/issues/<n> --field milestone=7`
@@ -19,8 +27,12 @@ anomaly detection. Never trade these away for convenience.
 - If you change anything beyond what was asked, say so explicitly in your summary.
 - Report real command output for tests. Never claim something passed without running it.
 - Security-tier files are reviewed by the user's separate "lead engineer" chat before merge.
-  End every task by listing the exact security-tier files you changed so the user can paste
-  their diff there.
+  Before asking for that review, run an adversarial self-review of the diff against the hard
+  rules (fail-open defaults, missing audit rows, sensitive data in logs or responses, OTP
+  identity and single-use gaps, UI-only permission checks), put findings and fixes in the PR
+  description, and give the exact `git diff` command for the security-tier files. End every
+  task by listing the exact security-tier files you changed. UI, template, CSS, docs and
+  test-only PRs need no lead engineer review.
 - Security tier: `app/services/access_service.py`, `app/middleware/rbac.py`,
   `app/services/audit_service.py`, `app/services/otp_service.py`, `app/services/sms_service.py`,
   `app/services/record_validation.py`, `app/blueprints/auth/routes.py`, every migration, every
