@@ -70,10 +70,15 @@
                 {% set on_home_records = current_endpoint in ['childrens_home_mode.records', 'childrens_home_mode.edit_record'] %}
                 {% set on_legal = current_endpoint == 'childrens_home_mode.legal_status_requests' %}
                 {% if role_name == 'administrator' %}
+                {# Administrators see only the active portal's pages. Display only: switching
+                   portals (below) changes what is shown, never what the server allows. #}
                 {{ nav_link('admin.dashboard', 'Dashboard', current_endpoint == 'admin.dashboard') }}
-                {{ nav_link('school_mode.records', 'School records', on_school) }}
+                {% if active_portal == 'childrens_home' %}
                 {{ nav_link('childrens_home_mode.records', "Children's home records", on_home_records) }}
                 {{ nav_link('childrens_home_mode.legal_status_requests', 'Legal status requests', on_legal) }}
+                {% else %}
+                {{ nav_link('school_mode.records', 'School records', on_school) }}
+                {% endif %}
                 {{ nav_link('admin.create_record_form', 'Create record', current_endpoint == 'admin.create_record_form') }}
                 {{ nav_link('admin.anomaly_alerts', 'Anomaly alerts', current_endpoint == 'admin.anomaly_alerts', new_anomaly_alert_count or 0) }}
                 {% elif role_name == 'teacher' %}
@@ -91,6 +96,17 @@
             <div class="rail-user">
                 <span class="user-name">{{ current_user.full_name }}</span>
                 <span class="badge badge-role">{{ ui.ROLE_LABELS.get(role_name, 'No role') }}</span>
+                {% if active_portal %}
+                <span class="portal-indicator" data-mode="{{ active_portal }}">{{ ui.mode_label(active_portal) }} portal</span>
+                {% endif %}
+                {% if role_name == 'administrator' %}
+                {% set other_portal = 'school' if active_portal == 'childrens_home' else 'childrens_home' %}
+                <form method="post" action="{{ url_for('auth.switch_portal') }}" class="portal-switch">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="portal" value="{{ other_portal }}">
+                    <button type="submit" class="ghost-button">Switch to {{ ui.mode_label(other_portal) }}</button>
+                </form>
+                {% endif %}
                 <a class="ghost-button" href="{{ url_for('auth.logout') }}">Sign out</a>
             </div>
         </header>

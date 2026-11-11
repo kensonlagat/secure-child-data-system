@@ -22,7 +22,10 @@
 
     <form id="record-edit-form" class="form-grid two-col" data-patch-url="{{ patch_url }}"
         data-back-url="{{ back_url }}">
-        {% for field in field_meta %}
+        {# Show only fields that belong to this record's mode (display only; the server still
+           validates every PATCH against the role's writable-field allowlist). #}
+        {% set hidden_fields = ui.MODE_ONLY_FIELDS['school' if record.institution_mode == 'childrens_home' else 'childrens_home'] %}
+        {% for field in field_meta if field.name not in hidden_fields %}
         <label class="field-group" for="field-{{ field.name }}">
             <span class="field-label">{{ ui.field_label(field.name) }} {{ ui.lock(field.name) }}</span>
             {% if field.name == 'institution_mode' %}

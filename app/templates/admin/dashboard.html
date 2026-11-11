@@ -7,30 +7,27 @@
 <section class="hero-card">
     <p class="eyebrow">Administrator dashboard</p>
     <h1>System overview</h1>
-    <p class="lead">Record volume, pending legal status approvals, and the most recent audit activity.</p>
+    <p class="lead">{{ ui.mode_label(active_portal) }} portal: record volume, alerts and the most recent audit
+        activity.</p>
 </section>
 
 <section class="grid three-up" id="dashboard-summary" aria-label="Summary">
     <article class="panel stat">
-        <h2 class="stat-label">Records by institution mode</h2>
-        <div class="metric-list">
-            {% for institution_mode, count in record_counts %}
-            <div class="metric-row">
-                <span class="metric-label">{{ ui.mode_label(institution_mode) }}</span>
-                <strong>{{ count }}</strong>
-            </div>
-            {% else %}
-            <div class="empty-state">No child records have been created yet.</div>
-            {% endfor %}
-        </div>
+        <h2 class="stat-label">{{ ui.mode_label(active_portal) }} records</h2>
+        {% set portal_count = record_counts | selectattr(0, 'equalto', active_portal) | map(attribute=1) | first %}
+        <div class="metric-value">{{ portal_count or 0 }}</div>
+        <p class="muted">Active child records in this portal.
+            <a href="{{ url_for('childrens_home_mode.records' if active_portal == 'childrens_home' else 'school_mode.records') }}">View records</a></p>
     </article>
 
+    {% if active_portal == 'childrens_home' %}
     <article class="panel stat">
         <h2 class="stat-label">Pending legal status requests</h2>
         <div class="metric-value">{{ pending_legal_status_requests }}</div>
         <p class="muted">Waiting for OTP confirmation or final approval.
             <a href="{{ url_for('childrens_home_mode.legal_status_requests') }}">Review requests</a></p>
     </article>
+    {% endif %}
 
     <article class="panel stat">
         <h2 class="stat-label">New anomaly alerts</h2>
@@ -45,7 +42,8 @@
         <h2>Create record</h2>
         <a class="primary-button" href="{{ url_for('admin.create_record_form') }}">New child record</a>
     </div>
-    <p class="muted">Create a school or children's home record. Sensitive fields are encrypted when saved.</p>
+    <p class="muted">New records are created in the {{ ui.mode_label(active_portal) }} portal. Sensitive fields are
+        encrypted when saved.</p>
 </section>
 
 <section class="panel" id="audit-log" aria-labelledby="audit-log-title">

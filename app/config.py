@@ -22,6 +22,8 @@ class BaseConfig:
     # Coarse flood guard only: schools share one public IP, so this must stay
     # well above what a busy staff room produces. Per-account lockout does the real work.
     LOGIN_IP_MAX_FAILURES = 100
+    # At most one access_denied audit row per actor, endpoint and outcome in this window.
+    ACCESS_DENIED_AUDIT_WINDOW_SECONDS = 60
 
     # Field-level encryption key for sensitive child record columns.
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

@@ -69,6 +69,27 @@ def create_app(config_name="development"):
         )
         return redirect(request.referrer or url_for("auth.login"))
 
+    @app.context_processor
+    def inject_active_portal():
+        """Expose the portal whose pages a signed-in user sees (display only).
+
+        Staff are always shown their role's own mode. Administrators span both modes,
+        so they see the portal they signed in through or last switched to. This never
+        changes what the server allows: access_service.py still decides that.
+        """
+        from flask import session
+        from flask_login import current_user
+
+        from app.blueprints.auth.routes import ACTIVE_PORTAL_SESSION_KEY, VALID_PORTALS
+
+        if not current_user.is_authenticated or current_user.role is None:
+            return {"active_portal": None}
+        role_mode = current_user.role.institution_mode
+        if role_mode in VALID_PORTALS:
+            return {"active_portal": role_mode}
+        chosen = session.get(ACTIVE_PORTAL_SESSION_KEY)
+        return {"active_portal": chosen if chosen in VALID_PORTALS else "school"}
+
     @app.get("/")
     def index():
         """Show the public landing page, or send signed-in users to their landing page."""
