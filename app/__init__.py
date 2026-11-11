@@ -40,9 +40,37 @@ def load_user(user_id):
     return user
 
 
+DEFAULT_SECRET_KEY = "change-me-in-env-file"
+MIN_SECRET_KEY_LENGTH = 32
+
+
+def _refuse_weak_or_missing_keys(app):
+    """Refuse to start with keys that would make the security controls meaningless (#73).
+
+    - FIELD_ENCRYPTION_KEY missing: refused in every mode except testing (encrypted
+      columns cannot work safely without it).
+    - SECRET_KEY missing, the default, or short: refused unless debug or testing. With a
+      known key, sessions could be forged and audit hashes reversed by guessing emails.
+    Messages name the setting, never its value.
+    """
+    if app.config.get("TESTING"):
+        return
+    if not (app.config.get("FIELD_ENCRYPTION_KEY") or "").strip():
+        raise RuntimeError("FIELD_ENCRYPTION_KEY is not set. Add it to .env before starting the app.")
+    if app.debug:
+        return
+    secret = app.config.get("SECRET_KEY") or ""
+    if secret == DEFAULT_SECRET_KEY or len(secret) < MIN_SECRET_KEY_LENGTH:
+        raise RuntimeError(
+            f"SECRET_KEY is missing, the default, or shorter than {MIN_SECRET_KEY_LENGTH} characters. "
+            "Set a long random SECRET_KEY in .env before starting outside debug mode."
+        )
+
+
 def create_app(config_name="development"):
     app = Flask(__name__)
     app.config.from_object(config_by_name[config_name])
+    _refuse_weak_or_missing_keys(app)
 
     # Bind extensions to this app instance
     db.init_app(app)
