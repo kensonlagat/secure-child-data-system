@@ -110,29 +110,22 @@ environment workaround). Local machine notes, including how to start PostgreSQL,
 ## Current state
 Done: authentication, RBAC with field scoping, record create/update, OTP soft-delete,
 two-person legal-status workflow, forgot password, CSRF, SMS service, dashboard UI, anomaly
-pipeline.
+pipeline. Merged 2026-11-11: login hardening with lockout, portal binding and hashed unknown
+identifiers (#38); the "safeguarding ledger" UI foundation and landing page (#44);
+administrators see one portal at a time and can switch, display only (#46); every
+`require_role` refusal is audited, bounded to one row per actor, endpoint and minute, and
+never blocks the 401/403 (#46). 79 tests on main.
 
-In review (open PRs, merge in this order: #38 → #41 → #42 → #44 → #46):
-- #38 login hardening. The follow-up is done: portal-mismatch, parent and inactive denials
-  no longer write `login_failed` or count toward lockout; blocked attempts write only
-  `login_blocked`; `LOGIN_IP_MAX_FAILURES` is 100; timing rerun recorded in the PR.
-  Self-review fixes: unknown login identifiers stored as a keyed hash, no 500s on bad input.
-  Security tier (`auth/routes.py`, `audit_service.py`), awaiting lead engineer review.
-- #41 this file. #42 regression test for empty-string record updates (#40 closed as not
-  reproducible).
-- #44 UI foundation ("safeguarding ledger" design, landing page, new layout), stacked on #38.
-  No security-tier files.
-- #46 administrators see one portal at a time and can switch without signing out (display
-  only), stacked on #44. Self-review fix: every `require_role` refusal is now audited.
-  Security tier (`auth/routes.py`, `middleware/rbac.py`), awaiting lead engineer review.
+Open: #37 SMS diagnostics touches `sms_service.py` (security tier), so it needs the
+self-review and an "approved #37" before merging. Review follow-ups: #73 (audit-hash subkey,
+refuse default `SECRET_KEY`), #74 (lowercase email in forgot/reset), #75 (bound record-level
+`access_denied` auditing; record refusals are audited but not yet bounded).
 
-Unconfirmed: whether PR #37 (SMS diagnostics) is merged, the OTP deletion test on record 43,
-and the guardian SMS appearing in the simulator.
+Unconfirmed: the OTP deletion test on record 43, and the guardian SMS appearing in the
+simulator.
 
 ## Roadmap (in order)
 The build order lives in tracking issue #71 (agreed 2026-11-11). Check it off as PRs merge.
-0. Merge the open stack first: #38 → #44 → #46 (plus #41, #42). Feature work builds on the new
-   layout and the School/Children's Home separation.
 1. Foundations: user management (#30), new roles and safeguarding-lead flag (#47),
    least-privilege DB role (#72, right after #47), classes and enrolment (#48), fuller child
    profile (#49), search and pagination (#32).
