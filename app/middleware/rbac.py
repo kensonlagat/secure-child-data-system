@@ -30,12 +30,16 @@ def audit_access_denied(
     target_record_id=None,
     action="access_denied",
     bound_per_target=True,
+    actor_cap=None,
 ):
     """Write a bounded refusal audit row (access_denied by default). Shared by role checks
     and record checks; record checks also use it for record_not_found.
 
     bound_per_target=False bounds per actor only (the row still records the first target),
     for refusals whose targets are unlimited, such as IDs that do not exist.
+
+    actor_cap, when set, also limits the actor to that many rows of this action and target
+    type per window, across all targets (for example 100 different forbidden records).
 
     At most one row per actor, target and refusal in each window
     (ACCESS_DENIED_AUDIT_WINDOW_SECONDS), so hammering a protected URL or record cannot
@@ -70,6 +74,15 @@ def audit_access_denied(
         )
         if recent.first() is not None:
             return
+        if actor_cap is not None:
+            actor_rows = AuditLogEntry.query.filter(
+                AuditLogEntry.action == action,
+                AuditLogEntry.target_record_type == target_record_type,
+                AuditLogEntry.timestamp > datetime.utcnow() - window,
+                AuditLogEntry.user_id == user_id if signed_in else AuditLogEntry.user_id.is_(None),
+            ).count()
+            if actor_rows >= actor_cap:
+                return  # the cap's worth of rows already shows the burst
         log_action(
             user_id=user_id,
             action=action,

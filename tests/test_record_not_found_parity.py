@@ -127,3 +127,61 @@ def test_the_404_happens_even_if_the_audit_write_fails(app, monkeypatch):
 
     assert teacher.get(f"/school/records/{app.config['FORBIDDEN']}/edit").status_code == 404
     assert teacher.get(f"/school/records/{MISSING_ID}/edit").status_code == 404
+
+
+# --- Per-user cap across records (on top of the per-record bound) ----------------
+
+
+def _add_forbidden_records(app, count):
+    with app.app_context():
+        records = [ChildRecord(full_name=f"Other {i}", date_of_birth=date(2014, 1, 1), institution_mode="school",
+                               class_assigned="Grade 7C") for i in range(count)]
+        db.session.add_all(records)
+        db.session.commit()
+        return [r.id for r in records]
+
+
+def test_cycling_through_100_forbidden_records_writes_at_most_the_cap(app):
+    cap = app.config["ACCESS_DENIED_RECORD_CAP_PER_WINDOW"]
+    assert cap == 20
+    ids = _add_forbidden_records(app, 100)
+    teacher = sign_in(app, "teacher@example.com", "school")
+
+    for record_id in ids:
+        assert teacher.get(f"/school/records/{record_id}/edit").status_code == 404
+
+    denied = rows(app, "access_denied")
+    assert len(denied) == cap
+    assert [r.target_record_id for r in denied] == ids[:cap]  # the first ones tried are kept
+
+
+def test_cap_is_per_user(app):
+    ids = _add_forbidden_records(app, 30)
+    teacher = sign_in(app, "teacher@example.com", "school")
+    for record_id in ids:
+        teacher.get(f"/school/records/{record_id}/edit")
+    worker = sign_in(app, "worker@example.com", "childrens_home")
+
+    worker.get(f"/home-mode/records/{app.config['HOME']}/edit")
+
+    with app.app_context():
+        worker_id = User.query.filter_by(email="worker@example.com").one().id
+    assert len([r for r in rows(app, "access_denied") if r.user_id == worker_id]) == 1
+
+
+def test_cap_resets_in_the_next_window(app):
+    from datetime import datetime, timedelta
+
+    ids = _add_forbidden_records(app, 25)
+    teacher = sign_in(app, "teacher@example.com", "school")
+    for record_id in ids[:20]:
+        teacher.get(f"/school/records/{record_id}/edit")
+    with app.app_context():  # test-only backdate in the in-memory DB
+        for row in AuditLogEntry.query.filter_by(action="access_denied").all():
+            row.timestamp = datetime.utcnow() - timedelta(seconds=61)
+        db.session.commit()
+
+    for record_id in ids[20:]:
+        teacher.get(f"/school/records/{record_id}/edit")
+
+    assert len(rows(app, "access_denied")) == 25

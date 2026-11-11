@@ -7,7 +7,7 @@ Scope per proposal:
 - Admin staff: fee records + general info
 - Parents: SMS notification on record access/modification
 """
-from flask import Blueprint, abort, jsonify, render_template, request, url_for
+from flask import Blueprint, abort, current_app, jsonify, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app import db
@@ -55,6 +55,8 @@ def require_record_access(record_id):
             status_code=404,
             target_record_type="child_record",
             target_record_id=record_id,
+            # Per-user cap across records, on top of the per-record bound.
+            actor_cap=current_app.config["ACCESS_DENIED_RECORD_CAP_PER_WINDOW"],
         )
         abort(404)
     return record
