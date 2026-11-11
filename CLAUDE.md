@@ -104,8 +104,9 @@ environment workaround). Local machine notes, including how to start PostgreSQL,
 - school_nurse (shown as "clinical officer"): school records, writes `medical_notes`.
 - social_worker: own caseload in children's-home mode, writes `medical_notes`.
 - legal_officer: all children's-home records, no direct writes (workflow only).
-- parent_guardian: no access yet. Planned: principal (school) and home_manager
-  (children's home), both read-only oversight of their own mode.
+- parent_guardian: no access yet.
+- principal (school) and home_manager (children's home): roles exist (#47) with no record
+  access yet. Planned: read-only oversight of their own mode (#53, #61).
 
 ## Design decisions already made
 - A portal dropdown (School / Children's Home) never decides access. After the password
@@ -121,21 +122,43 @@ pipeline. Merged 2026-11-11: login hardening with lockout, portal binding and ha
 identifiers (#38); the "safeguarding ledger" UI foundation and landing page (#44);
 administrators see one portal at a time and can switch, display only (#46); every
 `require_role` refusal is audited, bounded to one row per actor, endpoint and minute, and
-never blocks the 401/403 (#46). 79 tests on main.
+never blocks the 401/403 (#46).
 
-Open: #37 SMS diagnostics touches `sms_service.py` (security tier), so it needs the
-self-review and an "approved #37" before merging. Review follow-ups: #73 (audit-hash subkey,
-refuse default `SECRET_KEY`), #74 (lowercase email in forgot/reset), #75 (bound record-level
-`access_denied` auditing; record refusals are audited but not yet bounded).
+Phase 1 merges (2026-11-11, all lead-engineer approved):
+- #37 SMS service fails closed on a missing username or zero recipients; `test-sms` prints
+  the error type only.
+- #77 (#47) principal and home_manager roles (no record access yet) and the
+  `is_safeguarding_lead` flag, set and cleared only with an admin OTP. `verify_otp` locks
+  the OTP row (`SELECT ... FOR UPDATE`), so one code can't be used twice concurrently.
+- #78 (#72) least-privilege database roles (see hard rule 11). Every synthetic purge writes a
+  real `purge_synthetic_audit_data` row with the count, in the same transaction.
+- #79 (#30) admin user management: new staff set their own password from an SMS code;
+  activating an administrator and changing any phone number need an OTP sent to the acting
+  admin, bound to the target account (phone codes also to the new number);
+  `user_loader` rejects inactive accounts; `POST /register` removed.
+- #80 (#75) and #82: a missing record and a forbidden record both return 404; the real reason
+  is audited (`record_not_found` / `access_denied`), bounded per record and capped at 20 rows
+  per user per minute (`ACCESS_DENIED_RECORD_CAP_PER_WINDOW`).
+- #81 (#74) emails are lowercased at creation and matched case-insensitively in login,
+  forgot and reset.
+199 tests on main (plus 3 that need `TEST_POSTGRES_URL`).
+
+Dev database: switched to the roles on 2026-11-11. `.env` has `DATABASE_URL` (cds_app) and
+`MIGRATION_DATABASE_URL` (cds_owner); the superuser URL is no longer in `.env`, so
+`flask setup-db-roles` needs `DB_SETUP_URL` set in the shell for that one command.
+`check-db-privileges` passes 11/11. After a migration recreates `purge_synthetic_audit_entries()`,
+re-grant `EXECUTE` to cds_app (the owner can do it) or rerun `setup-db-roles`.
+
+Open review follow-up: #73 (audit-hash subkey, refuse default `SECRET_KEY`).
 
 Unconfirmed: the OTP deletion test on record 43, and the guardian SMS appearing in the
 simulator.
 
 ## Roadmap (in order)
 The build order lives in tracking issue #71 (agreed 2026-11-11). Check it off as PRs merge.
-1. Foundations: user management (#30), new roles and safeguarding-lead flag (#47),
-   least-privilege DB role (#72, right after #47), classes and enrolment (#48), fuller child
-   profile (#49), search and pagination (#32).
+1. Foundations: done: user management (#30), new roles and safeguarding-lead flag (#47),
+   least-privilege DB role (#72). Next: classes and enrolment (#48), fuller child profile
+   (#49), search and pagination (#32).
 2. Safeguarding and consent: safeguarding concerns (#62; admins see metadata only, every
    narrative read audited), consent (#63).
 3. School daily work: attendance (#50), pickup list (#51), clinic log (#52), principal overview (#53).
@@ -154,3 +177,8 @@ timetables, library, transport, payroll, biometrics.
 - Anomaly detection covers administrator, teacher and legal_officer only, trained on synthetic
   data. Failed logins for unknown emails have no `user_id`, so the model never sees them.
 - Only the sandbox SMS host is exercised. Live credentials are untested.
+- A reactivated user's old session cookie works again within its lifetime (accepted, #79).
+- "Send a new code" can send repeated SMS to the acting admin; no rate limit (accepted, #79).
+- New tables get `SELECT, INSERT, UPDATE` for cds_app by default. Any future append-only
+  table must have `UPDATE` revoked explicitly in its PR and be added to `check-db-privileges`.
+- The purge audit row names the CLI command, not a person (the CLI has no signed-in user).
