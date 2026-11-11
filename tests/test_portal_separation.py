@@ -303,3 +303,89 @@ def test_switch_with_non_object_json_is_rejected_not_crashed(app, body):
 
     assert response.status_code == 400
     assert active_portal(client) == "school"
+
+
+# --- Lead review follow-up: bounded, safe and non-blocking refusal auditing ---
+
+from datetime import datetime, timedelta  # noqa: E402
+
+
+def _denied_rows(app):
+    with app.app_context():
+        return AuditLogEntry.query.filter_by(action="access_denied").all()
+
+
+def test_repeated_refusals_are_bounded_per_window(app):
+    client = app.test_client()
+    sign_in(client, "teacher@example.com", "school")
+
+    for _ in range(25):
+        assert client.get("/admin/dashboard").status_code == 403
+
+    assert len(_denied_rows(app)) == 1
+
+
+def test_a_new_window_audits_again(app):
+    client = app.test_client()
+    sign_in(client, "teacher@example.com", "school")
+    client.get("/admin/dashboard")
+    with app.app_context():
+        for row in AuditLogEntry.query.filter_by(action="access_denied").all():
+            row.timestamp = datetime.utcnow() - timedelta(seconds=61)  # test-only backdate
+        db.session.commit()
+
+    client.get("/admin/dashboard")
+
+    assert len(_denied_rows(app)) == 2
+
+
+def test_different_endpoints_are_audited_separately(app):
+    client = app.test_client()
+    sign_in(client, "teacher@example.com", "school")
+
+    client.get("/admin/dashboard")
+    client.get("/admin/anomaly-alerts")
+
+    assert len(_denied_rows(app)) == 2
+
+
+def test_unauthenticated_refusal_writes_safe_anonymous_identifier(app):
+    client = app.test_client()
+
+    response = client.post("/register", data={"email": "x@example.com"})
+
+    assert response.status_code == 401
+    rows = _denied_rows(app)
+    assert len(rows) == 1
+    assert rows[0].user_id is None
+    assert rows[0].attempted_identifier == "anonymous"
+    assert rows[0].details == "Unauthenticated request refused for endpoint auth.register"
+    assert "x@example.com" not in (rows[0].details + rows[0].attempted_identifier)
+
+
+def test_rotating_ip_addresses_does_not_lift_the_anonymous_bound(app):
+    client = app.test_client()
+
+    for i in range(30):
+        client.post("/register", data={}, environ_base={"REMOTE_ADDR": f"203.0.113.{i}"})
+
+    assert len(_denied_rows(app)) == 1
+
+
+@pytest.mark.parametrize("signed_in, expected", [(True, 403), (False, 401)])
+def test_refusal_happens_even_if_the_audit_write_fails(app, monkeypatch, signed_in, expected):
+    client = app.test_client()
+    path = "/admin/dashboard" if signed_in else "/register"
+    if signed_in:
+        sign_in(client, "teacher@example.com", "school")
+
+    from app.services import audit_service
+
+    def broken_log_action(*args, **kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(audit_service, "log_action", broken_log_action)
+
+    response = client.get(path) if signed_in else client.post(path, data={})
+
+    assert response.status_code == expected
