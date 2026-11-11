@@ -18,5 +18,8 @@ trained_models/
 !.vscode/extensions.json
 .DS_Store
 
+CLAUDE.local.md
+
+
 # Migrations you don't want to hand-review yet can stay tracked —
 # do NOT ignore migrations/, they belong in version control.
