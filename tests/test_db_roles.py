@@ -63,5 +63,6 @@ def test_clear_synthetic_audit_data_keeps_real_rows():
     assert "Deleted 2 synthetic audit rows." in result.output
     with app.app_context():
         assert AuditLogEntry.query.filter_by(is_synthetic=True).count() == 0
-        assert AuditLogEntry.query.filter_by(is_synthetic=False).count() == 1
+        # The one real row stays, plus the real row recording the purge itself.
+        assert AuditLogEntry.query.filter_by(is_synthetic=False).count() == 2
         db.drop_all()

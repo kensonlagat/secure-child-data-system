@@ -175,19 +175,37 @@ def clear_synthetic_audit_data_command():
     and training data regeneration.
     """
     dialect = db.engine.dialect.name
+    try:
+        deleted_count = _purge_synthetic_rows(dialect)
+        # Every purge leaves a real (non-synthetic) audit row with the count. log_action()
+        # commits the deletion and this row together, so a purge can never go unrecorded:
+        # if the audit insert fails, the deletion is rolled back with it.
+        log_action(
+            action="purge_synthetic_audit_data",
+            attempted_identifier="cli:clear-synthetic-audit-data",
+            target_record_type="audit_log",
+            details=f"Purged {deleted_count} synthetic audit rows",
+        )
+    except Exception:
+        db.session.rollback()
+        raise
+    click.echo(f"Deleted {deleted_count} synthetic audit rows.")
+
+
+def _purge_synthetic_rows(dialect: str) -> int:
+    """Delete synthetic audit rows without committing and return how many went."""
     if dialect == "postgresql":
         # The app's database role has no DELETE on the audit log (#72). This SECURITY
         # DEFINER function is the restricted path: it can only delete is_synthetic rows.
-        deleted_count = db.session.execute(
-            text("SELECT purge_synthetic_audit_entries()")
-        ).scalar()
-        db.session.commit()
-        click.echo(f"Deleted {deleted_count} synthetic audit rows.")
-        return
-    if dialect != "sqlite":
-        raise click.ClickException(f"Unsupported database for synthetic purge: {dialect}")
+        return db.session.execute(text("SELECT purge_synthetic_audit_entries()")).scalar()
+    if dialect == "sqlite":
+        return _delete_synthetic_rows_directly()
+    raise click.ClickException(f"Unsupported database for synthetic purge: {dialect}")
 
-    # SQLite (tests only): no roles or functions, so delete the synthetic rows directly.
+
+def _delete_synthetic_rows_directly() -> int:
+    """Delete synthetic audit rows without committing. SQLite has no roles or
+    functions, so this path is for tests only."""
     synthetic_entry_ids = [
         entry_id
         for (entry_id,) in db.session.query(AuditLogEntry.id)
@@ -204,8 +222,7 @@ def clear_synthetic_audit_data_command():
         .filter(AuditLogEntry.is_synthetic.is_(True))
         .delete(synchronize_session=False)
     )
-    db.session.commit()
-    click.echo(f"Deleted {deleted_count} synthetic audit rows.")
+    return deleted_count
 
 
 @click.command("seed-synthetic-users")
