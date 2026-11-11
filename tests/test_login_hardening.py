@@ -407,3 +407,98 @@ def test_attempted_identifier_is_truncated(app):
         entry = AuditLogEntry.query.order_by(AuditLogEntry.id.desc()).first()
         assert len(entry.attempted_identifier) == 255
         assert entry.attempted_identifier == long_identifier[:255]
+
+
+# --- Adversarial self-review fixes (PR #38) ---
+
+
+@pytest.mark.parametrize("body", [[1], "just-a-string", 42])
+def test_login_with_non_object_json_fails_generically_and_is_audited(app, body):
+    client = app.test_client()
+
+    response = client.post("/login", json=body, environ_base={"REMOTE_ADDR": "10.0.0.9"})
+
+    assert_generic_failure(response)
+    with app.app_context():
+        assert AuditLogEntry.query.filter_by(action="login_failed").count() == 1
+
+
+def test_unknown_identifier_is_stored_as_keyed_hash_not_raw_text(app):
+    client = app.test_client()
+    typed = "MyS3cretPassw0rd"  # a password typed into the email box
+
+    post_login(client, typed, "x")
+    post_login(client, typed, "x")
+
+    with app.app_context():
+        rows = AuditLogEntry.query.filter_by(action="login_failed").all()
+        identifiers = {row.attempted_identifier for row in rows}
+        assert len(identifiers) == 1
+        stored = identifiers.pop()
+        assert stored.startswith("unknown:")
+        assert typed.lower() not in stored
+        assert typed not in stored
+
+
+def test_unknown_identifier_lockout_still_counts_repeats(app):
+    client = app.test_client()
+    for _ in range(5):
+        post_login(client, "nobody@example.com", "wrong-password")
+
+    response = post_login(client, "nobody@example.com", "wrong-password")
+
+    assert_generic_failure(response)
+    with app.app_context():
+        assert AuditLogEntry.query.filter_by(action="login_blocked").count() == 1
+
+
+def test_known_account_identifier_is_still_the_email(app):
+    client = app.test_client()
+    post_login(client, "Teacher@Example.com", "wrong-password")
+
+    assert login_failed_count(app, "teacher@example.com") == 1
+
+
+@pytest.fixture()
+def no_response_floor(monkeypatch):
+    from app.blueprints.auth import routes as auth_routes
+
+    monkeypatch.setattr(auth_routes, "MIN_RESPONSE_SECONDS", 0)
+
+
+def test_forgot_password_without_email_answers_generically_and_audits(app, no_response_floor):
+    client = app.test_client()
+
+    response = client.post("/forgot-password", data={})
+
+    assert response.status_code == 200
+    with app.app_context():
+        entry = AuditLogEntry.query.filter_by(
+            action="password_reset_requested_unknown_identifier"
+        ).one()
+        assert entry.attempted_identifier.startswith("unknown:")
+
+
+def test_forgot_password_never_stores_raw_unknown_identifier(app, no_response_floor):
+    client = app.test_client()
+
+    client.post("/forgot-password", data={"email": "ghost@example.com"})
+
+    with app.app_context():
+        entry = AuditLogEntry.query.filter_by(
+            action="password_reset_requested_unknown_identifier"
+        ).one()
+        assert "ghost" not in entry.attempted_identifier
+
+
+def test_reset_password_without_email_fails_generically_and_audits(app, no_response_floor):
+    client = app.test_client()
+
+    response = client.post(
+        "/reset-password", data={"otp_code": "123456", "new_password": "long-enough-pw"}
+    )
+
+    assert response.status_code == 400
+    with app.app_context():
+        entry = AuditLogEntry.query.filter_by(action="password_reset_failed").one()
+        assert entry.attempted_identifier.startswith("unknown:")
