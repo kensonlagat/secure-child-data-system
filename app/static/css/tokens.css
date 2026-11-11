@@ -1,0 +1,203 @@
+/*
+ * Design tokens: "safeguarding ledger".
+ * Every colour, size, space, radius and shadow used by main.css comes from here.
+ * Dark mode swaps the same token names, so components never need their own dark rules.
+ */
+
+@font-face {
+    font-family: "Fraunces";
+    src: url("../fonts/fraunces-latin-wght-normal.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Fraunces";
+    src: url("../fonts/fraunces-latin-ext-wght-normal.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+    font-family: "DM Sans";
+    src: url("../fonts/dm-sans-latin-wght-normal.woff2") format("woff2");
+    font-weight: 100 1000;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "DM Sans";
+    src: url("../fonts/dm-sans-latin-ext-wght-normal.woff2") format("woff2");
+    font-weight: 100 1000;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+    font-family: "JetBrains Mono";
+    src: url("../fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+    font-weight: 100 800;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "JetBrains Mono";
+    src: url("../fonts/jetbrains-mono-latin-ext-wght-normal.woff2") format("woff2");
+    font-weight: 100 800;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+    color-scheme: light;
+
+    /* Paper and ink */
+    --paper: #f8f5ee;
+    --surface: #fffdf8;
+    --surface-sunken: #f1ece1;
+    --ink: #1b2440;
+    --ink-muted: #4c5570;
+    --line: #e2dbcb;
+    --line-strong: #c9bfa8;
+
+    /* One amber accent, for primary actions only */
+    --amber: #e2a428;
+    --amber-hover: #d39516;
+    --on-amber: #1b2440;
+
+    /* Portal accents (text-safe on paper and on their soft tint) */
+    --teal: #0c6466;
+    --teal-soft: #dcefec;
+    --plum: #6e2c5c;
+    --plum-soft: #f3e4ee;
+    --navy: #2b3a67;
+    --navy-soft: #e3e7f3;
+
+    /* Status */
+    --success: #2a6337;
+    --success-soft: #e1f0e2;
+    --warning: #7e5200;
+    --warning-soft: #fbefd4;
+    --danger: #a12f2a;
+    --danger-soft: #f9e3e0;
+    --info: #2b3a67;
+    --info-soft: #e3e7f3;
+
+    /* Focus ring: strong contrast against paper, used by every interactive element */
+    --focus: #1b2440;
+    --focus-halo: rgba(226, 164, 40, 0.55);
+
+    /* Active portal accent. base.html sets data-portal on <body>. */
+    --accent: var(--navy);
+    --accent-soft: var(--navy-soft);
+
+    /* Type */
+    --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --font-body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --text-xs: 0.78rem;
+    --text-sm: 0.875rem;
+    --text-md: 1rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.375rem;
+    --text-2xl: clamp(1.5rem, 1.2rem + 1.2vw, 1.9rem);
+    --text-3xl: clamp(1.9rem, 1.4rem + 2.2vw, 2.75rem);
+    --text-4xl: clamp(2.3rem, 1.6rem + 3.4vw, 3.6rem);
+    --leading-tight: 1.15;
+    --leading-normal: 1.55;
+
+    /* Spacing (4px base) */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-10: 2.5rem;
+    --space-12: 3rem;
+    --space-16: 4rem;
+
+    /* Radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-pill: 999px;
+
+    /* Shadow */
+    --shadow-sm: 0 1px 2px rgba(27, 36, 64, 0.06);
+    --shadow-md: 0 1px 2px rgba(27, 36, 64, 0.05), 0 6px 18px rgba(27, 36, 64, 0.07);
+    --shadow-lg: 0 2px 4px rgba(27, 36, 64, 0.06), 0 18px 44px rgba(27, 36, 64, 0.14);
+
+    /* Layout */
+    --rail-width: 15.5rem;
+    --content-max: 72rem;
+    --duration: 160ms;
+}
+
+body[data-portal="school"] {
+    --accent: var(--teal);
+    --accent-soft: var(--teal-soft);
+}
+
+body[data-portal="childrens_home"] {
+    --accent: var(--plum);
+    --accent-soft: var(--plum-soft);
+}
+
+body[data-portal="admin"],
+body[data-portal="neutral"] {
+    --accent: var(--navy);
+    --accent-soft: var(--navy-soft);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+
+        --paper: #12141c;
+        --surface: #1a1d28;
+        --surface-sunken: #222636;
+        --ink: #ede8dd;
+        --ink-muted: #aeb2c2;
+        --line: #2e3344;
+        --line-strong: #454b60;
+
+        --amber: #f0b43e;
+        --amber-hover: #f6c463;
+        --on-amber: #1a1406;
+
+        --teal: #6cc9c1;
+        --teal-soft: #173634;
+        --plum: #e0a6cf;
+        --plum-soft: #3a2234;
+        --navy: #a9b8ea;
+        --navy-soft: #252d4a;
+
+        --success: #8fd19c;
+        --success-soft: #1d3324;
+        --warning: #eec06a;
+        --warning-soft: #3a2f17;
+        --danger: #f39a90;
+        --danger-soft: #3d201e;
+        --info: #a9b8ea;
+        --info-soft: #252d4a;
+
+        --focus: #f0b43e;
+        --focus-halo: rgba(240, 180, 62, 0.35);
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 22px rgba(0, 0, 0, 0.35);
+        --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.4), 0 20px 48px rgba(0, 0, 0, 0.5);
+    }
+}

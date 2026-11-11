@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Child Data System{% endblock %}
+
+{% block content %}
+<section class="landing-hero" aria-labelledby="landing-title">
+    <p class="eyebrow">Safeguarding ledger</p>
+    <h1 id="landing-title">Every child's record, kept safe and accounted for.</h1>
+    <p class="lead">One secure place for schools and children's homes to keep the records that matter: who a child is, who
+        to call, and how they are cared for. Staff see only what their role needs.</p>
+</section>
+
+<section aria-labelledby="doors-title">
+    <h2 id="doors-title" class="visually-hidden">Choose your portal</h2>
+    <div class="doors">
+        <a class="door door-school" href="{{ url_for('auth.login', portal='school') }}">
+            <span class="door-icon">{{ ui.icon('school') }}</span>
+            <h2>School</h2>
+            <p>Teachers and clinical officers: class records, guardian contacts and health notes.</p>
+            <span class="door-cta">Sign in to the School portal <span aria-hidden="true">&rarr;</span></span>
+        </a>
+        <a class="door door-home" href="{{ url_for('auth.login', portal='childrens_home') }}">
+            <span class="door-icon">{{ ui.icon('home') }}</span>
+            <h2>Children's Home</h2>
+            <p>Social workers and legal officers: caseloads, welfare notes and legal status.</p>
+            <span class="door-cta">Sign in to the Children's Home portal <span aria-hidden="true">&rarr;</span></span>
+        </a>
+    </div>
+</section>
+
+<section aria-labelledby="trust-title">
+    <h2 id="trust-title" class="visually-hidden">How records are protected</h2>
+    {{ ui.trust_points() }}
+</section>
+{% endblock %}

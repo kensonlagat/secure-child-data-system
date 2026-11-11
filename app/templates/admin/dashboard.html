@@ -1,24 +1,22 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 
 {% block title %}Admin Dashboard | Child Data System{% endblock %}
 
 {% block content %}
 <section class="hero-card">
-    <div>
-        <p class="eyebrow">Administrator dashboard</p>
-        <h1>System overview</h1>
-        <p class="lead">Track record volume, pending legal status approvals, and the most recent audit activity from one
-            place.</p>
-    </div>
+    <p class="eyebrow">Administrator dashboard</p>
+    <h1>System overview</h1>
+    <p class="lead">Record volume, pending legal status approvals, and the most recent audit activity.</p>
 </section>
 
-<section class="grid two-up" id="dashboard-summary">
-    <article class="panel">
-        <h2>Records by institution mode</h2>
+<section class="grid three-up" id="dashboard-summary" aria-label="Summary">
+    <article class="panel stat">
+        <h2 class="stat-label">Records by institution mode</h2>
         <div class="metric-list">
             {% for institution_mode, count in record_counts %}
             <div class="metric-row">
-                <span class="metric-label">{{ institution_mode.replace('_', ' ') | title }}</span>
+                <span class="metric-label">{{ ui.mode_label(institution_mode) }}</span>
                 <strong>{{ count }}</strong>
             </div>
             {% else %}
@@ -27,41 +25,49 @@
         </div>
     </article>
 
-    <article class="panel">
-        <h2>Pending legal status requests</h2>
+    <article class="panel stat">
+        <h2 class="stat-label">Pending legal status requests</h2>
         <div class="metric-value">{{ pending_legal_status_requests }}</div>
-        <p class="muted">Requests waiting for OTP confirmation or final approval.</p>
+        <p class="muted">Waiting for OTP confirmation or final approval.
+            <a href="{{ url_for('childrens_home_mode.legal_status_requests') }}">Review requests</a></p>
     </article>
 
-    <article class="panel">
-        <h2>New anomaly alerts</h2>
+    <article class="panel stat">
+        <h2 class="stat-label">New anomaly alerts</h2>
         <div class="metric-value">{{ new_anomaly_alert_count }}</div>
-        <p class="muted">Alerts that still need administrator review or dismissal.</p>
+        <p class="muted">Still need review or dismissal.
+            <a href="{{ url_for('admin.anomaly_alerts') }}">Open alerts</a></p>
     </article>
 </section>
 
 <section class="panel" id="create-record">
-    <h2>Create record</h2>
-    <p class="muted">Use the JSON API at <code>/admin/records</code> to create school or children's home records.</p>
+    <div class="section-head">
+        <h2>Create record</h2>
+        <a class="primary-button" href="{{ url_for('admin.create_record_form') }}">New child record</a>
+    </div>
+    <p class="muted">Create a school or children's home record. Sensitive fields are encrypted when saved.</p>
 </section>
 
-<section class="panel" id="audit-log">
-    <h2>Recent audit activity</h2>
-    <div class="table-wrap">
+<section class="panel" id="audit-log" aria-labelledby="audit-log-title">
+    <div class="section-head">
+        <h2 id="audit-log-title">Recent audit activity</h2>
+        <p class="muted">Latest 10 entries</p>
+    </div>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="audit-log-title">
         <table>
             <thead>
                 <tr>
-                    <th>Timestamp</th>
-                    <th>User</th>
-                    <th>Action</th>
+                    <th scope="col">Timestamp (UTC)</th>
+                    <th scope="col">User</th>
+                    <th scope="col">Action</th>
                 </tr>
             </thead>
             <tbody>
                 {% for audit_entry, user_full_name in recent_audit_rows %}
                 <tr>
-                    <td>{{ audit_entry.timestamp }}</td>
+                    <td class="mono">{{ audit_entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if audit_entry.timestamp else '' }}</td>
                     <td>{{ user_full_name }}</td>
-                    <td>{{ audit_entry.action }}</td>
+                    <td><span class="badge mono">{{ audit_entry.action }}</span></td>
                 </tr>
                 {% else %}
                 <tr>

@@ -1,28 +1,39 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 
 {% block title %}{{ page_title }} | Child Data System{% endblock %}
 
+{% block head_scripts %}
+<script src="{{ url_for('static', filename='js/record-edit.js') }}" defer></script>
+{% endblock %}
+
 {% block content %}
 <section class="hero-card">
-    <p class="eyebrow">Edit record</p>
+    <p class="eyebrow">Edit record <span class="mono">#{{ record.id }}</span></p>
     <h1>{{ page_heading }}</h1>
     <p class="lead">{{ page_subtitle }}</p>
 </section>
 
-<section class="panel">
-    <form id="record-edit-form" class="form-grid">
+<section class="panel" aria-labelledby="edit-form-title">
+    <div class="section-head">
+        <h2 id="edit-form-title">Fields you can change</h2>
+        <p class="muted">Only changed fields are sent. Every save is recorded in the audit log.</p>
+    </div>
+
+    <form id="record-edit-form" class="form-grid two-col" data-patch-url="{{ patch_url }}"
+        data-back-url="{{ back_url }}">
         {% for field in field_meta %}
-        <label class="field-group">
-            <span class="field-label">{{ field.label }}</span>
+        <label class="field-group" for="field-{{ field.name }}">
+            <span class="field-label">{{ ui.field_label(field.name) }} {{ ui.lock(field.name) }}</span>
             {% if field.name == 'institution_mode' %}
-            <select name="{{ field.name }}" data-initial-value="{{ field.value }}">
+            <select id="field-{{ field.name }}" name="{{ field.name }}">
                 <option value="school" {% if field.value=='school' %}selected{% endif %}>School</option>
                 <option value="childrens_home" {% if field.value=='childrens_home' %}selected{% endif %}>Children's Home
                 </option>
             </select>
             {% else %}
-            <input type="{{ field.type }}" name="{{ field.name }}" value="{{ field.value }}"
-                data-initial-value="{{ field.value }}">
+            <input id="field-{{ field.name }}" type="{{ field.type }}" name="{{ field.name }}" value="{{ field.value }}"
+                {% if field.name in ui.MONO_FIELDS %}class="mono" {% endif %}>
             {% endif %}
         </label>
         {% endfor %}
@@ -35,65 +46,4 @@
 
     <div id="form-message" class="notice" aria-live="polite" hidden></div>
 </section>
-
-<script>
-    const form = document.getElementById('record-edit-form');
-    const messageBox = document.getElementById('form-message');
-    const patchUrl = {{ patch_url | tojson }};
-    const backUrl = {{ back_url | tojson }};
-
-    form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        messageBox.className = 'notice';
-        messageBox.hidden = false;
-        messageBox.textContent = 'Saving...';
-
-        const payload = {};
-        for (const element of form.elements) {
-            if (!element.name) {
-                continue;
-            }
-
-            if (element.tagName === 'SELECT' || element.type === 'text' || element.type === 'date' || element.type === 'number') {
-                const initialValue = element.dataset.initialValue;
-                if (element.value === initialValue) {
-                    continue;
-                }
-
-                if (element.type === 'number') {
-                    payload[element.name] = element.value === '' ? null : Number(element.value);
-                } else {
-                    payload[element.name] = element.value;
-                }
-            }
-        }
-
-        const response = await fetch(patchUrl, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-            body: JSON.stringify(payload),
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (response.ok) {
-            messageBox.className = 'notice success';
-            messageBox.hidden = false;
-            messageBox.textContent = data.message || 'Record updated successfully.';
-            window.setTimeout(() => {
-                window.location.href = backUrl;
-            }, 500);
-            return;
-        }
-
-        messageBox.className = 'notice error';
-        messageBox.hidden = false;
-        messageBox.textContent = data.error || 'Update failed.';
-        if (Array.isArray(data.rejected_fields) && data.rejected_fields.length) {
-            messageBox.textContent = `${messageBox.textContent} Rejected fields: ${data.rejected_fields.join(', ')}.`;
-        }
-    });
-</script>
 {% endblock %}

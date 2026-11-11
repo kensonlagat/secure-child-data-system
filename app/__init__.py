@@ -7,7 +7,7 @@ Why a factory pattern (create_app) instead of a global `app` object:
 - Standard Flask best practice for anything beyond a toy script
 """
 
-from flask import Flask, flash, jsonify, redirect, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
@@ -71,8 +71,14 @@ def create_app(config_name="development"):
 
     @app.get("/")
     def index():
-        """Redirect the application root to the login page."""
-        return redirect(url_for("auth.login"))
+        """Show the public landing page, or send signed-in users to their landing page."""
+        from flask_login import current_user
+
+        if current_user.is_authenticated:
+            from app.blueprints.auth.routes import _landing_endpoint_for_user
+
+            return redirect(url_for(_landing_endpoint_for_user(current_user)))
+        return render_template("landing.html")
 
     @app.get("/favicon.ico")
     def favicon():
