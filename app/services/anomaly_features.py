@@ -60,10 +60,13 @@ def extract_features_for_entry(entry, session):
 
     window_start, window_end = _last_hour_window(timestamp)
 
-    same_user_window = session.query(AuditLogEntry).filter(
-        AuditLogEntry.user_id == entry.user_id,
-        AuditLogEntry.timestamp > window_start,
-        AuditLogEntry.timestamp <= window_end,
+    same_user_window = (
+        session.query(AuditLogEntry)
+        .filter(
+            AuditLogEntry.user_id == entry.user_id,
+            AuditLogEntry.timestamp > window_start,
+            AuditLogEntry.timestamp <= window_end,
+        )
     )
 
     actions_last_hour = same_user_window.count()
@@ -96,9 +99,7 @@ def extract_features_for_entry(entry, session):
     if previous_entry_timestamp is None:
         seconds_since_last_action = SECONDS_SINCE_NO_PREVIOUS_ACTION
     else:
-        seconds_since_last_action = int(
-            (timestamp - previous_entry_timestamp).total_seconds()
-        )
+        seconds_since_last_action = int((timestamp - previous_entry_timestamp).total_seconds())
 
     return {
         "hour_of_day": timestamp.hour,
@@ -127,9 +128,7 @@ def extract_training_dataset(role_name, session, include_real_data=False):
     if not include_real_data:
         entries_query = entries_query.filter(AuditLogEntry.is_synthetic.is_(True))
 
-    entries = entries_query.order_by(
-        AuditLogEntry.timestamp.asc(), AuditLogEntry.id.asc()
-    ).all()
+    entries = entries_query.order_by(AuditLogEntry.timestamp.asc(), AuditLogEntry.id.asc()).all()
 
     feature_rows = [extract_features_for_entry(entry, session) for entry in entries]
     return pd.DataFrame(feature_rows, columns=FEATURE_COLUMNS)

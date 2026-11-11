@@ -3,7 +3,6 @@ Single entry point for writing audit log entries. Route handlers and
 services should call log_action() rather than constructing AuditLogEntry
 directly, so there is exactly one code path to review/test for correctness.
 """
-
 from typing import Optional
 
 from flask import request
