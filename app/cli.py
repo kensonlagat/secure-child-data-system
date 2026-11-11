@@ -1,10 +1,14 @@
 """CLI bootstrap and diagnostics commands."""
 
 import os
+import secrets
+import subprocess
+from datetime import datetime
 
 import click
 import re
 
+from flask import current_app
 from sqlalchemy import text
 from werkzeug.security import generate_password_hash
 
@@ -29,15 +33,16 @@ ROLE_SEED_DATA = (
     ("home_manager", "childrens_home"),
 )
 SYNTHETIC_USER_CLASSES = ("Grade 4A", "Grade 5B", "Grade 6A", "Grade 7C", "Grade 8B")
+CREDENTIALS_FILE_NAME = "TESTING_CREDENTIALS.md"  # local and git-ignored, never tracked
 E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
-def _create_synthetic_user(role: Role, sequence_number: int) -> User:
+def _create_synthetic_user(role: Role, sequence_number: int, password: str) -> User:
     """Create one synthetic user record for the requested role."""
     user = User()
     user.role_id = role.id
     user.phone_number = f"+254700{role.id:02d}{sequence_number:04d}"
-    user.password_hash = generate_password_hash("Synthetic#2026")
+    user.password_hash = generate_password_hash(password)
     user.is_active = True
 
     if role.name == "administrator":
@@ -234,8 +239,22 @@ def _delete_synthetic_rows_directly() -> int:
     help="Number of additional synthetic users to create per supported role.",
 )
 def seed_synthetic_users_command(per_role: int):
-    """Create additional synthetic users for anomaly-training demos."""
+    """Create additional synthetic users for anomaly-training demos.
+
+    Each run gets one random password, written only to the local git-ignored credentials
+    file and never printed. The command refuses to run unless git confirms that file is
+    ignored, so a password can never land in a tracked file.
+    """
+    credentials_path = _credentials_file_path()
+    if not _is_git_ignored(credentials_path):
+        raise click.ClickException(
+            f"{CREDENTIALS_FILE_NAME} is not git-ignored (or git is unavailable), so no password "
+            "can be written safely. No accounts were created."
+        )
+
     supported_roles = ("administrator", "teacher", "legal_officer")
+    password = secrets.token_urlsafe(18)
+    created = []
 
     for role_name in supported_roles:
         role = Role.query.filter_by(name=role_name).first()
@@ -245,12 +264,53 @@ def seed_synthetic_users_command(per_role: int):
         existing_count = User.query.filter_by(role_id=role.id).count()
         for offset in range(1, per_role + 1):
             sequence_number = existing_count + offset
-            user = _create_synthetic_user(role, sequence_number)
+            user = _create_synthetic_user(role, sequence_number, password)
             db.session.add(user)
             db.session.flush()
+            created.append(user.email)
             click.echo(f"Created {role_name} user_id={user.id} email={user.email}")
 
-    db.session.commit()
+    # log_action() commits the accounts together with this row.
+    log_action(
+        action="seed_synthetic_users",
+        attempted_identifier="cli:seed-synthetic-users",
+        target_record_type="user",
+        details=f"Created {len(created)} synthetic accounts",
+    )
+
+    # Written after the commit: if this fails, the new accounts have a password nobody knows
+    # (fail closed) rather than a known password with no accounts behind it.
+    try:
+        _append_credentials(credentials_path, created, password)
+    except OSError as error:
+        raise click.ClickException(
+            f"Accounts were created, but writing {CREDENTIALS_FILE_NAME} failed "
+            f"({type(error).__name__}). Their password is unknown; rerun to create usable accounts."
+        )
+    click.echo(f"Password for these accounts written to {CREDENTIALS_FILE_NAME} (git-ignored, not shown).")
+
+
+def _credentials_file_path() -> str:
+    return os.path.join(os.path.dirname(current_app.root_path), CREDENTIALS_FILE_NAME)
+
+
+def _is_git_ignored(path: str) -> bool:
+    """True only when git confirms the path is ignored. Any doubt means False."""
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", path],
+            cwd=os.path.dirname(path), capture_output=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _append_credentials(path: str, emails, password: str) -> None:
+    lines = [f"\nSynthetic accounts seeded {datetime.now():%Y-%m-%d %H:%M} (seed-synthetic-users):"]
+    lines += [f"- `{email}` / `{password}`" for email in emails]
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
 
 
 @click.command("train-anomaly-models")
