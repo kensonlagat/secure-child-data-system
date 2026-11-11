@@ -91,7 +91,7 @@ def create_admin_command(email: str, password: str, full_name: str, phone_number
             "Administrator role not found. Run `flask seed-roles` first."
         )
 
-    existing_user = User.query.filter_by(email=email).first()
+    existing_user = User.query.filter(db.func.lower(User.email) == email.strip().lower()).first()
     if existing_user:
         raise click.ClickException(f"User with email '{email}' already exists.")
 

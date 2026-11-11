@@ -50,6 +50,12 @@ def _is_valid_email(email: Optional[str]) -> bool:
     return bool(email and EMAIL_REGEX.match(email))
 
 
+def _normalize_email(value) -> str:
+    """Trim and lower-case a submitted email. Login, forgot and reset all use this, and
+    look accounts up with lower(email), so the same address always matches (#74)."""
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
 def _is_valid_password(password: Optional[str]) -> bool:
     """Return True when a password meets minimum length requirements."""
     return bool(password and len(password) >= MIN_PASSWORD_LENGTH)
@@ -243,8 +249,7 @@ def login():
         return render_template("auth/login.html")
 
     payload = _request_payload()
-    raw_email = payload.get("email")
-    email = raw_email.strip().lower() if isinstance(raw_email, str) else ""
+    email = _normalize_email(payload.get("email"))
     raw_password = payload.get("password")
     password = raw_password if isinstance(raw_password, str) else ""
     portal = _get_payload_value(payload, "portal") or "school"
@@ -388,8 +393,12 @@ def forgot_password():
     start_time = time.monotonic()
 
     payload = _request_payload()
-    email = _get_payload_value(payload, "email")
-    user = User.query.filter_by(email=email).first() if _is_valid_email(email) else None
+    email = _normalize_email(payload.get("email"))
+    user = (
+        User.query.filter(func.lower(User.email) == email).first()
+        if _is_valid_email(email)
+        else None
+    )
 
     if user is not None:
         try:
@@ -438,10 +447,14 @@ def reset_password():
     start_time = time.monotonic()
 
     payload = _request_payload()
-    email = _get_payload_value(payload, "email")
+    email = _normalize_email(payload.get("email"))
     otp_code = _get_payload_value(payload, "otp_code")
     new_password = _get_payload_value(payload, "new_password")
-    user = User.query.filter_by(email=email).first() if _is_valid_email(email) else None
+    user = (
+        User.query.filter(func.lower(User.email) == email).first()
+        if _is_valid_email(email)
+        else None
+    )
 
     otp_event = _latest_password_reset_otp(user.id) if user is not None else None
     reset_failed = (
