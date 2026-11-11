@@ -59,7 +59,22 @@ run.py                  # Entry point
    flask db upgrade
    ```
 
-5. **Run the app**:
+5. **Create the least-privilege database roles** (once, as a PostgreSQL superuser):
+   ```bash
+   # Superuser connection for this one command; passwords are prompted (hidden)
+   # or read from CDS_OWNER_PASSWORD / CDS_APP_PASSWORD. Never put them in tracked files.
+   DB_SETUP_URL=postgresql://postgres@localhost:5432/child_data_system flask setup-db-roles
+   ```
+   Then point `.env` at the new roles: `DATABASE_URL` uses `cds_app`, and
+   `MIGRATION_DATABASE_URL` uses `cds_owner`. Check the result:
+   ```bash
+   flask check-db-privileges   # every line must say PASS
+   ```
+   The app role can read, insert and update app tables, can only read and insert audit
+   rows, and can delete nothing. Rerun `flask setup-db-roles` after migrations that add
+   tables or functions (empty password answers keep the existing passwords).
+
+6. **Run the app**:
    ```bash
    python run.py
    ```
