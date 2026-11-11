@@ -565,3 +565,26 @@ def test_phone_numbers_never_appear_in_audit_rows_or_otp_contexts(app, admin_cli
         texts += [otp.action_context for otp in OTPEvent.query.all()]
     for number in (TEACHER_PHONE, NEW_PHONE, NEW_PHONE.lstrip("+"), "733333333"):
         assert not any(number in text for text in texts)
+
+
+def test_phone_change_code_issued_under_the_old_raw_key_context_is_refused(app, admin_client):
+    """#73: the context moved to a subkey, so a code bound to the old context can't be used."""
+    import hashlib
+    import hmac
+
+    from werkzeug.security import generate_password_hash as hash_code
+
+    teacher_id = app.config["IDS"]["teacher"]
+    with app.app_context():
+        old_context = "change_phone:" + hmac.new(
+            app.config["SECRET_KEY"].encode(), f"change_phone|{NEW_PHONE}".encode(), hashlib.sha256
+        ).hexdigest()[:32]
+        db.session.add(OTPEvent(user_id=app.config["IDS"]["admin"], action_context=old_context,
+                                target_record_id=teacher_id, code_hash=hash_code("123456"),
+                                expires_at=datetime.utcnow() + timedelta(minutes=5)))
+        db.session.commit()
+
+    response = admin_client.post(f"/admin/users/{teacher_id}/edit", data=teacher_form(app, otp_code="123456"))
+
+    assert response.status_code == 400
+    assert teacher_phone(app) == TEACHER_PHONE
