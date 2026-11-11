@@ -34,6 +34,10 @@ def generate_otp(user, action_context: str, target_record_id: int = None) -> OTP
 
 
 def verify_otp(otp_event: OTPEvent, submitted_code: str) -> bool:
+    # Single use, enforced here for every flow: a code that already verified once can
+    # never verify again, even if a caller forgets to check is_verified.
+    if otp_event.is_verified:
+        return False
     if otp_event.attempt_count >= MAX_OTP_ATTEMPTS:
         return False
 

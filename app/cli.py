@@ -19,6 +19,8 @@ ROLE_SEED_DATA = (
     ("social_worker", "childrens_home"),
     ("legal_officer", "childrens_home"),
     ("parent_guardian", "school"),
+    ("principal", "school"),
+    ("home_manager", "childrens_home"),
 )
 SYNTHETIC_USER_CLASSES = ("Grade 4A", "Grade 5B", "Grade 6A", "Grade 7C", "Grade 8B")
 
