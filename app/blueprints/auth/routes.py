@@ -1,14 +1,19 @@
 """Authentication routes for Sprint 1 registration and login."""
+import hashlib
+import hmac
 import re
 import time
+from datetime import datetime, timedelta
 from typing import Optional
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
+from sqlalchemy import func
 
 from app import db
 from app.middleware.rbac import require_role
+from app.models.audit_log import AuditLogEntry
 from app.models.otp_event import OTPEvent
 from app.models.user import Role, User
 from app.services.audit_service import log_action
@@ -24,6 +29,16 @@ RESET_PASSWORD_GENERIC_ERROR = "Unable to reset password."
 # time is independent of whether the account exists. Must stay above the
 # worst-case SMS API latency to prevent timing-based user enumeration.
 MIN_RESPONSE_SECONDS = 2.0
+GENERIC_LOGIN_ERROR = "Invalid credentials, or too many attempts. Try again later."
+# These messages are shown only after the password has verified, so they reveal
+# nothing to someone who does not already hold the account's credentials.
+INACTIVE_ACCOUNT_ERROR = "This account has been deactivated. Contact your administrator."
+PORTAL_MISMATCH_ERROR = (
+    "This account doesn't belong to the selected portal. "
+    "Choose the other portal and try again."
+)
+PARENT_ACCOUNT_ERROR = "Parent accounts use the parent sign-in."
+DUMMY_PASSWORD_HASH = generate_password_hash("unusable-login-password")
 
 
 def _is_valid_email(email: Optional[str]) -> bool:
@@ -42,6 +57,92 @@ def _get_payload_value(payload: dict, key: str) -> Optional[str]:
     if isinstance(value, str):
         return value.strip()
     return value
+
+
+def _request_payload():
+    """Return the request's JSON object, or the form for anything else.
+
+    A JSON body that is not an object (a list, a string, a number) falls back to the
+    form instead of crashing, so every auth endpoint still answers generically and audits.
+    """
+    payload = request.get_json(silent=True)
+    if isinstance(payload, dict):
+        return payload
+    return request.form
+
+
+def _audit_identifier(email, user):
+    """Return the identifier stored on pre-authentication audit rows.
+
+    Known account: the normalised email (the row also carries the user_id).
+    Unknown account: a keyed hash of what was typed. Lockout can still count repeat
+    attempts, but the raw text is never stored, because people sometimes type their
+    password into the email box (hard rule 1: never log passwords).
+    """
+    if user is not None:
+        return email
+    key = current_app.config["SECRET_KEY"]
+    key = key if isinstance(key, bytes) else key.encode()
+    digest = hmac.new(key, (email or "").encode(), hashlib.sha256).hexdigest()
+    return f"unknown:{digest[:40]}"
+
+
+def _login_failure_response():
+    """Return the generic login failure response for form and JSON clients."""
+    if request.is_json:
+        return jsonify({"error": GENERIC_LOGIN_ERROR}), 401
+    return render_template("auth/login.html", error=GENERIC_LOGIN_ERROR), 401
+
+
+def _login_denied_response(message):
+    """Return a specific denial shown only after the password has verified."""
+    if request.is_json:
+        return jsonify({"error": message}), 401
+    return render_template("auth/login.html", error=message), 401
+
+
+def _login_lockout_state(identifier, user, remote_addr):
+    """Return whether the submitted email or source IP is currently locked out."""
+    now = datetime.utcnow()
+    window_start = now - timedelta(minutes=current_app.config["LOGIN_LOCKOUT_MINUTES"])
+    cutoff = window_start
+
+    if user is not None:
+        latest_successful_login = (
+            AuditLogEntry.query.filter_by(user_id=user.id, action="login")
+            .order_by(AuditLogEntry.timestamp.desc(), AuditLogEntry.id.desc())
+            .first()
+        )
+        if latest_successful_login and latest_successful_login.timestamp:
+            cutoff = max(cutoff, latest_successful_login.timestamp)
+
+    email_failures = AuditLogEntry.query.filter(
+        AuditLogEntry.action == "login_failed",
+        AuditLogEntry.attempted_identifier == identifier,
+        AuditLogEntry.timestamp > cutoff,
+    ).count()
+    ip_failures = AuditLogEntry.query.filter(
+        AuditLogEntry.action == "login_failed",
+        AuditLogEntry.ip_address == remote_addr,
+        AuditLogEntry.timestamp > window_start,
+    ).count()
+
+    return (
+        email_failures >= current_app.config["LOGIN_MAX_FAILURES"]
+        or ip_failures >= current_app.config["LOGIN_IP_MAX_FAILURES"]
+    )
+
+
+def _log_login_failure(identifier, user, details):
+    """Audit one failed login attempt with a normalized, bounded identifier."""
+    log_action(
+        user_id=user.id if user is not None else None,
+        action="login_failed",
+        target_record_type="user" if user is not None else None,
+        target_record_id=user.id if user is not None else None,
+        details=details,
+        attempted_identifier=identifier,
+    )
 
 
 def _landing_endpoint_for_user(user: User) -> str:
@@ -81,7 +182,7 @@ def _latest_password_reset_otp(user_id: int) -> Optional[OTPEvent]:
 @require_role("administrator")
 def register():
     """Create a user account with role assignment, guarded by admin RBAC."""
-    payload = request.get_json(silent=True) or request.form
+    payload = _request_payload()
     email = _get_payload_value(payload, "email")
     password = _get_payload_value(payload, "password")
     full_name = _get_payload_value(payload, "full_name")
@@ -131,34 +232,86 @@ def register():
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    """Authenticate a user and route them to their institution mode dashboard."""
+    """Authenticate a user with lockout, timing, and portal-binding controls."""
     if request.method == "GET":
         return render_template("auth/login.html")
 
-    payload = request.get_json(silent=True) or request.form
-    email = _get_payload_value(payload, "email")
-    password = _get_payload_value(payload, "password")
+    payload = _request_payload()
+    raw_email = payload.get("email")
+    email = raw_email.strip().lower() if isinstance(raw_email, str) else ""
+    raw_password = payload.get("password")
+    password = raw_password if isinstance(raw_password, str) else ""
+    portal = _get_payload_value(payload, "portal") or "school"
+    portal_valid = portal in {"school", "childrens_home"}
 
-    if not _is_valid_email(email):
-        return render_template("auth/login.html", error="Invalid email format."), 400
+    user = User.query.filter(func.lower(User.email) == email).first() if email else None
+    identifier = _audit_identifier(email, user)
 
-    if password is None or not _is_valid_password(password):
-        return render_template(
-            "auth/login.html",
-            error="Password must be at least 8 characters.",
-        ), 400
+    if _login_lockout_state(identifier, user, request.remote_addr):
+        check_password_hash(DUMMY_PASSWORD_HASH, password)
+        # Only `login_blocked` here, never `login_failed`: the real password is not
+        # checked, so a blocked attempt is not a credential failure and must not
+        # extend the lockout. It expires a fixed window after the last real failure.
+        log_action(
+            user_id=user.id if user is not None else None,
+            action="login_blocked",
+            target_record_type="user" if user is not None else None,
+            target_record_id=user.id if user is not None else None,
+            details="Login attempt blocked by lockout policy",
+            attempted_identifier=identifier,
+        )
+        return _login_failure_response()
 
-    user = User.query.filter_by(email=email).first()
-    if not user or not check_password_hash(user.password_hash, password):
-        if user:
-            log_action(
-                user_id=user.id,
-                action="login_failed",
-                target_record_type="user",
-                target_record_id=user.id,
-                details="Failed login attempt with invalid credentials",
-            )
-        return render_template("auth/login.html", error="Invalid credentials."), 401
+    if user is None:
+        check_password_hash(DUMMY_PASSWORD_HASH, password)
+        _log_login_failure(identifier, None, "Failed login attempt for unknown account")
+        return _login_failure_response()
+
+    password_valid = check_password_hash(user.password_hash, password)
+    if not password_valid:
+        _log_login_failure(identifier, user, "Failed login attempt with invalid password")
+        return _login_failure_response()
+
+    # From here on the password is correct. The denials below are audited under
+    # their own actions but deliberately do NOT write `login_failed`, so they never
+    # count toward lockout: they are not guessing attempts.
+    if not user.is_active:
+        log_action(
+            user_id=user.id,
+            action="login_denied_inactive",
+            target_record_type="user",
+            target_record_id=user.id,
+            details="Login denied because the account is inactive",
+            attempted_identifier=identifier,
+        )
+        return _login_denied_response(INACTIVE_ACCOUNT_ERROR)
+
+    role_name = getattr(getattr(user, "role", None), "name", None)
+    institution_mode = getattr(getattr(user, "role", None), "institution_mode", None)
+    if role_name == "parent_guardian":
+        log_action(
+            user_id=user.id,
+            action="login_portal_mismatch",
+            target_record_type="user",
+            target_record_id=user.id,
+            details="Login denied because a parent account used the staff sign-in",
+            attempted_identifier=identifier,
+        )
+        return _login_denied_response(PARENT_ACCOUNT_ERROR)
+
+    portal_matches = portal_valid and (
+        role_name == "administrator" or institution_mode == portal
+    )
+    if not portal_matches:
+        log_action(
+            user_id=user.id,
+            action="login_portal_mismatch",
+            target_record_type="user",
+            target_record_id=user.id,
+            details="Login denied because the selected portal did not match the account",
+            attempted_identifier=identifier,
+        )
+        return _login_denied_response(PORTAL_MISMATCH_ERROR)
 
     login_user(user)
     log_action(
@@ -187,7 +340,7 @@ def forgot_password():
 
     start_time = time.monotonic()
 
-    payload = request.get_json(silent=True) or request.form
+    payload = _request_payload()
     email = _get_payload_value(payload, "email")
     user = User.query.filter_by(email=email).first() if _is_valid_email(email) else None
 
@@ -213,7 +366,7 @@ def forgot_password():
         log_action(
             action="password_reset_requested_unknown_identifier",
             details="Password reset requested for unknown identifier.",
-            attempted_identifier=email,
+            attempted_identifier=_audit_identifier(email, None),
         )
 
     elapsed = time.monotonic() - start_time
@@ -237,7 +390,7 @@ def reset_password():
 
     start_time = time.monotonic()
 
-    payload = request.get_json(silent=True) or request.form
+    payload = _request_payload()
     email = _get_payload_value(payload, "email")
     otp_code = _get_payload_value(payload, "otp_code")
     new_password = _get_payload_value(payload, "new_password")
@@ -261,7 +414,7 @@ def reset_password():
             target_record_type="user" if user is not None else None,
             target_record_id=user.id if user is not None else None,
             details="Password reset failed.",
-            attempted_identifier=email if user is None else None,
+            attempted_identifier=_audit_identifier(email, None) if user is None else None,
         )
     else:
         user.password_hash = generate_password_hash(new_password)
