@@ -1,6 +1,8 @@
-"""CLI bootstrap commands for roles and first administrator account."""
+"""CLI bootstrap and diagnostics commands."""
 
 import click
+import os
+import re
 from werkzeug.security import generate_password_hash
 
 from app import db
@@ -11,6 +13,7 @@ from app.services.anomaly_scoring import score_recent_entries
 from app.services.anomaly_training import train_models_for_all_roles
 from app.services.audit_service import log_action
 from app.services.synthetic_audit_data import generate_synthetic_history
+from app.services.sms_service import SmsDeliveryError, send_sms
 
 ROLE_SEED_DATA = (
     ("administrator", "both"),
@@ -21,6 +24,7 @@ ROLE_SEED_DATA = (
     ("parent_guardian", "school"),
 )
 SYNTHETIC_USER_CLASSES = ("Grade 4A", "Grade 5B", "Grade 6A", "Grade 7C", "Grade 8B")
+E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
 def _create_synthetic_user(role: Role, sequence_number: int) -> User:
@@ -114,6 +118,35 @@ def create_admin_command(email: str, password: str, full_name: str, phone_number
     )
 
     click.echo(f"Administrator account created with user_id={user.id} and email={user.email}")
+
+
+
+@click.command("test-sms")
+@click.option("--to", "phone_number", required=True, help="E.164 recipient phone number.")
+def test_sms_command(phone_number: str):
+    """Send a diagnostic SMS without exposing credentials or message contents."""
+    if not E164_PHONE_PATTERN.fullmatch(phone_number):
+        raise click.ClickException("Recipient must be a valid E.164 phone number.")
+
+    username = os.environ.get("AFRICASTALKING_USERNAME")
+    api_key = os.environ.get("AFRICASTALKING_API_KEY")
+    click.echo(f"username set: {'yes' if username else 'no'}")
+    click.echo(f"api key set: {'yes' if api_key else 'no'}")
+
+    try:
+        response = send_sms(phone_number, "Test message from the child data system.")
+    except SmsDeliveryError as error:
+        click.echo(f"send failed: SmsDeliveryError (status {error.status_code})")
+        return
+    except Exception as error:
+        # Type only: exception text from the HTTP stack is not needed and may echo request details.
+        click.echo(f"send failed: {type(error).__name__}")
+        return
+
+    recipients = response.get("SMSMessageData", {}).get("Recipients", [])
+    for recipient in recipients:
+        for field_name, field_value in recipient.items():
+            click.echo(f"{field_name}: {field_value}")
 
 
 @click.command("generate-synthetic-audit-data")
@@ -225,6 +258,7 @@ def register_cli_commands(app):
     """Attach project bootstrap CLI commands to the Flask app instance."""
     app.cli.add_command(seed_roles_command)
     app.cli.add_command(create_admin_command)
+    app.cli.add_command(test_sms_command)
     app.cli.add_command(seed_synthetic_users_command)
     app.cli.add_command(generate_synthetic_audit_data_command)
     app.cli.add_command(clear_synthetic_audit_data_command)
