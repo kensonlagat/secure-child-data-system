@@ -8,6 +8,7 @@ A table lets the Administrator manage roles without a code change.
 """
 from datetime import datetime
 from flask_login import UserMixin
+from sqlalchemy.orm import validates
 from app import db
 
 
@@ -53,6 +54,11 @@ class User(db.Model, UserMixin):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     audit_entries = db.relationship("AuditLogEntry", back_populates="user")
+
+    @validates("email")
+    def _normalise_email(self, _key, value):
+        """Store every email trimmed and lower-case, whichever path creates the account (#74)."""
+        return value.strip().lower() if isinstance(value, str) else value
 
     def __repr__(self):
         return f"<User {self.email} ({self.role.name if self.role else 'no role'})>"
