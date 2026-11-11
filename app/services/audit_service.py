@@ -27,7 +27,9 @@ def log_action(
 
     entry = AuditLogEntry()
     entry.user_id = user_id
-    entry.attempted_identifier = attempted_identifier
+    entry.attempted_identifier = (
+        attempted_identifier[:255] if attempted_identifier is not None else None
+    )
     entry.action = action
     entry.target_record_type = target_record_type
     entry.target_record_id = target_record_id

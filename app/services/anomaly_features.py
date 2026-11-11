@@ -21,8 +21,13 @@ from app.models.user import Role, User
 
 FAILED_AUTH_ACTIONS = {
     "login_failed",
+    "login_blocked",
+    "login_denied_inactive",
+    "login_portal_mismatch",
     "legal_status_change_otp_failed",
     "legal_status_change_approval_otp_failed",
+    "password_reset_failed",
+    "record_deletion_otp_failed",
 }
 SECONDS_SINCE_NO_PREVIOUS_ACTION = 86400
 FEATURE_COLUMNS = [

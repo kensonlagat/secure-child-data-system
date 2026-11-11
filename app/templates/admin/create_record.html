@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 
 {% block title %}Create Record | Child Data System{% endblock %}
 
@@ -26,14 +27,15 @@
             <input type="date" name="date_of_birth" required>
         </label>
 
-        <label class="field-group">
-            <span class="field-label">Institution mode</span>
-            <select name="institution_mode" required>
-                <option value="school">School</option>
-                <option value="childrens_home">Children's Home</option>
-            </select>
-        </label>
+        {# The record is created in the active portal. Switch portals to create the other kind.
+           The server still validates institution_mode on submit. #}
+        <div class="field-group">
+            <span class="field-label">Portal</span>
+            <span class="portal-chip">{{ ui.icon('lock') }}<span>{{ ui.mode_label(active_portal) }}</span></span>
+            <input type="hidden" name="institution_mode" value="{{ active_portal }}">
+        </div>
 
+        {% if active_portal == 'school' %}
         <label class="field-group">
             <span class="field-label">Guardian contact</span>
             <input type="text" name="guardian_contact" placeholder="School mode only">
@@ -45,12 +47,13 @@
             <input type="text" name="class_assigned" placeholder="School mode only">
             <span class="field-help">Visible for school records and teachers.</span>
         </label>
-
+        {% else %}
         <label class="field-group">
             <span class="field-label">Caseload worker ID</span>
             <input type="number" name="caseload_worker_id" placeholder="Children's home only">
             <span class="field-help">Use a social worker user ID when creating a children's home record.</span>
         </label>
+        {% endif %}
 
         <div class="form-actions">
             <button type="submit" class="primary-button">Create record</button>

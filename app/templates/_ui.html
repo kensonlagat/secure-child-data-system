@@ -1,0 +1,91 @@
+{# Presentation helpers shared by templates. No data access, no logic beyond display. #}
+
+{# Columns stored with EncryptedType in app/models/child_record.py. Keep in sync if that changes. #}
+{% set SENSITIVE_FIELDS = ['full_name', 'guardian_contact', 'medical_notes'] %}
+
+{# Columns shown in the monospace face (IDs, dates, timestamps). #}
+{% set MONO_FIELDS = ['id', 'date_of_birth', 'created_at', 'updated_at', 'deleted_at', 'caseload_worker_id'] %}
+
+{% set ROLE_LABELS = {
+'administrator': 'Administrator',
+'teacher': 'Teacher',
+'school_nurse': 'Clinical officer',
+'social_worker': 'Social worker',
+'legal_officer': 'Legal officer',
+'parent_guardian': 'Parent or guardian',
+} %}
+
+{# Display names for stored institution_mode values. Display only: stored values never change. #}
+{% set MODE_LABELS = {'school': 'School', 'childrens_home': "Children's Home", 'both': 'Both modes'} %}
+
+{# Columns that belong to only one mode (see the mode-specific fields in child_record.py).
+   Pages hide the other mode's columns. Display only: access_service.py decides what is sent. #}
+{% set MODE_ONLY_FIELDS = {
+'school': ['guardian_contact', 'class_assigned'],
+'childrens_home': ['legal_status', 'caseload_worker_id'],
+} %}
+
+{% macro mode_label(value) -%}
+{{ MODE_LABELS.get(value, value) }}
+{%- endmacro %}
+
+{% macro trust_points(extra_class='') -%}
+<ul class="trust-strip {{ extra_class }}">
+    <li class="trust-item">
+        {{ icon('lock') }}
+        <strong>Encrypted records</strong>
+        <span>Names, guardian contacts and medical notes are encrypted at rest.</span>
+    </li>
+    <li class="trust-item">
+        {{ icon('ledger') }}
+        <strong>Every access logged</strong>
+        <span>Record views, changes and sign-ins are recorded in the audit log.</span>
+    </li>
+    <li class="trust-item">
+        {{ icon('twokey') }}
+        <strong>Two-person approval</strong>
+        <span>A legal status change needs a second officer and a one-time code for each.</span>
+    </li>
+</ul>
+{%- endmacro %}
+
+{% macro field_label(field_name) -%}
+{{ field_name.replace('_', ' ') | capitalize }}
+{%- endmacro %}
+
+{% macro lock(field_name) -%}
+{% if field_name in SENSITIVE_FIELDS %}<span class="lock" title="Encrypted at rest"><svg viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+        focusable="false">
+        <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+        <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    </svg><span class="visually-hidden">(encrypted field)</span></span>{% endif %}
+{%- endmacro %}
+
+{% macro icon(name) -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+    stroke-linejoin="round" aria-hidden="true" focusable="false">
+    {% if name == 'shield' %}
+    <path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z" />
+    <path d="M9 12l2.2 2.2L15.5 10" />
+    {% elif name == 'school' %}
+    <path d="M3 9.5L12 5l9 4.5-9 4.5z" />
+    <path d="M7 11.5v4.5c1.4 1.3 3 2 5 2s3.6-.7 5-2v-4.5" />
+    <path d="M21 9.5v5" />
+    {% elif name == 'home' %}
+    <path d="M4 11l8-6.5 8 6.5" />
+    <path d="M6 9.5V20h12V9.5" />
+    <path d="M12 17.5s-3-1.8-3-3.8a1.6 1.6 0 0 1 3-.8 1.6 1.6 0 0 1 3 .8c0 2-3 3.8-3 3.8z" />
+    {% elif name == 'lock' %}
+    <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+    <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    {% elif name == 'ledger' %}
+    <path d="M6 3.5h10.5L19 6v14.5H6z" />
+    <path d="M9 9h7M9 12.5h7M9 16h4" />
+    {% elif name == 'twokey' %}
+    <circle cx="7.5" cy="8.5" r="2.5" />
+    <circle cx="16.5" cy="8.5" r="2.5" />
+    <path d="M3.5 19c.5-3 2-4.5 4-4.5s3.5 1.5 4 4.5M12.5 19c.5-3 2-4.5 4-4.5s3.5 1.5 4 4.5" />
+    {% endif %}
+</svg>
+{%- endmacro %}

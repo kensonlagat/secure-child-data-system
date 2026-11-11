@@ -1,39 +1,58 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 
 {% block title %}{{ page_title }} | Child Data System{% endblock %}
 
 {% block content %}
+{# Each list page shows one mode. Hide the other mode's columns and the (constant) mode column.
+   Display only: the route and access_service.py decide which fields are sent. #}
+{% set page_mode = 'childrens_home' if request.blueprint == 'childrens_home_mode' else 'school' %}
+{% set hidden_fields = ui.MODE_ONLY_FIELDS['school' if page_mode == 'childrens_home' else 'childrens_home'] + ['institution_mode'] %}
+{% set shown_fields = visible_fields | reject('in', hidden_fields) | list %}
 <section class="hero-card">
     <p class="eyebrow">Records</p>
     <h1>{{ page_heading }}</h1>
     <p class="lead">{{ page_subtitle }}</p>
 </section>
 
-<section class="panel">
+<section class="panel" aria-labelledby="records-table-title">
+    <div class="section-head">
+        <h2 id="records-table-title">{{ record_entries | length }} record{{ '' if record_entries | length == 1 else 's' }}</h2>
+        {% if shown_fields | select('in', ui.SENSITIVE_FIELDS) | list %}
+        <p class="muted">{{ ui.lock('full_name') }} Encrypted at rest</p>
+        {% endif %}
+    </div>
+
+    {% if active_portal and active_portal != page_mode %}
+    <div class="notice info" role="status">You are in the {{ ui.mode_label(active_portal) }} portal. These are
+        {{ ui.mode_label(page_mode) }} records.</div>
+    {% endif %}
+
     <div id="record-action-message" class="notice" aria-live="polite" hidden></div>
 
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="records-table-title">
         <table class="data-table">
             <thead>
                 <tr>
-                    {% for field_name in visible_fields %}
-                    <th>{{ field_name.replace('_', ' ') | title }}</th>
+                    {% for field_name in shown_fields %}
+                    <th scope="col">{{ ui.field_label(field_name) }} {{ ui.lock(field_name) }}</th>
                     {% endfor %}
-                    <th>Actions</th>
+                    <th scope="col">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for entry in record_entries %}
                 <tr>
-                    {% for field_name in visible_fields %}
-                    <td>{{ entry["values"][field_name] if entry["values"][field_name] is not none else '' }}</td>
+                    {% for field_name in shown_fields %}
+                    {% set value = entry["values"][field_name] %}
+                    <td{% if field_name in ui.MONO_FIELDS %} class="mono"{% endif %}>{% if value is none or value == '' %}<span class="cell-empty" aria-label="Empty">&mdash;</span>{% elif field_name == 'institution_mode' %}{{ ui.mode_label(value) }}{% else %}{{ value }}{% endif %}</td>
                     {% endfor %}
                     <td class="table-actions">
                         {% if entry["writable_fields"] %}
                         <a class="action-link action-link-button"
                             href="{{ edit_url_builder(entry['record'].id) }}">Edit</a>
                         {% else %}
-                        <span class="muted">Read only</span>
+                        <span class="badge">Read only</span>
                         {% endif %}
 
                         {% if current_user.role and current_user.role.name == 'administrator' %}
@@ -45,7 +64,10 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="{{ visible_fields|length + 1 }}" class="empty-state">No records available.</td>
+                    <td colspan="{{ shown_fields|length + 1 }}" class="empty-state">
+                        <strong>No records to show.</strong><br>
+                        Records appear here once they are assigned to you.
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
