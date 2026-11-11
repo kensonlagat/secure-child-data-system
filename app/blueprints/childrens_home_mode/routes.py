@@ -36,19 +36,31 @@ def _serialize_record(record, visible_fields):
 
 
 def require_record_access(record_id):
-    """Return a record only when the current user is allowed to access it."""
+    """Return a record only when the current user is allowed to access it.
+
+    Missing and forbidden records both answer 404, so a response never reveals whether a
+    record ID exists. The audit log keeps the real reason (bounded, never blocks the 404).
+    """
     record = db.session.get(ChildRecord, record_id)
     if record is None:
+        audit_access_denied(
+            "Child record not found in children's home mode",
+            status_code=404,
+            target_record_type="child_record",
+            target_record_id=record_id,
+            action="record_not_found",
+            # Missing IDs are unlimited, so bound per user rather than per ID.
+            bound_per_target=False,
+        )
         abort(404)
     if not can_access_record(current_user, record):
-        # Bounded (one row per user, record and minute) and never blocks the 403 (#75).
         audit_access_denied(
             "Denied child record access in children's home mode",
-            status_code=403,
+            status_code=404,
             target_record_type="child_record",
             target_record_id=record_id,
         )
-        abort(403)
+        abort(404)
     return record
 
 

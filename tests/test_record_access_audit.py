@@ -1,4 +1,6 @@
-"""Record-level access_denied auditing is bounded and never blocks the 403 (#75)."""
+"""Record-level access_denied auditing is bounded and never blocks the refusal (#75).
+
+Forbidden records answer 404 (see test_record_not_found_parity.py)."""
 
 from datetime import date, datetime, timedelta
 
@@ -59,7 +61,7 @@ def test_hammering_a_forbidden_record_writes_one_row(app):
     record_id = app.config["FORBIDDEN_IDS"][0]
 
     for _ in range(25):
-        assert teacher.get(f"/school/records/{record_id}/edit").status_code == 403
+        assert teacher.get(f"/school/records/{record_id}/edit").status_code == 404
 
     rows = denied_rows(app)
     assert len(rows) == 1
@@ -94,7 +96,7 @@ def test_patch_attempts_are_bounded_too(app):
     record_id = app.config["FORBIDDEN_IDS"][0]
 
     for _ in range(10):
-        assert teacher.patch(f"/school/records/{record_id}", json={"guardian_contact": "+254711111111"}).status_code == 403
+        assert teacher.patch(f"/school/records/{record_id}", json={"guardian_contact": "+254711111111"}).status_code == 404
 
     assert len(denied_rows(app)) == 1
 
@@ -103,14 +105,14 @@ def test_childrens_home_record_refusals_are_bounded(app):
     worker = sign_in(app, "worker@example.com", "childrens_home")  # not on this child's caseload
 
     for _ in range(10):
-        assert worker.get(f"/home-mode/records/{app.config['HOME_ID']}/edit").status_code == 403
+        assert worker.get(f"/home-mode/records/{app.config['HOME_ID']}/edit").status_code == 404
 
     rows = denied_rows(app)
     assert len(rows) == 1
     assert rows[0].details == "Denied child record access in children's home mode"
 
 
-def test_the_403_happens_even_if_the_audit_write_fails(app, monkeypatch):
+def test_the_refusal_happens_even_if_the_audit_write_fails(app, monkeypatch):
     teacher = sign_in(app, "teacher@example.com", "school")
 
     def broken(*args, **kwargs):
@@ -119,4 +121,4 @@ def test_the_403_happens_even_if_the_audit_write_fails(app, monkeypatch):
     monkeypatch.setattr("app.services.audit_service.log_action", broken)
     monkeypatch.setattr("app.blueprints.school_mode.routes.log_action", broken)  # old direct import
 
-    assert teacher.get(f"/school/records/{app.config['FORBIDDEN_IDS'][0]}/edit").status_code == 403
+    assert teacher.get(f"/school/records/{app.config['FORBIDDEN_IDS'][0]}/edit").status_code == 404

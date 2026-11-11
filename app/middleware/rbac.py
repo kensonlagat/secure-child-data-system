@@ -22,8 +22,20 @@ from flask_login import current_user
 ANONYMOUS_IDENTIFIER = "anonymous"
 
 
-def audit_access_denied(details, *, status_code, target_record_type="route", target_record_id=None):
-    """Write a bounded access_denied audit row. Shared by role checks and record checks.
+def audit_access_denied(
+    details,
+    *,
+    status_code,
+    target_record_type="route",
+    target_record_id=None,
+    action="access_denied",
+    bound_per_target=True,
+):
+    """Write a bounded refusal audit row (access_denied by default). Shared by role checks
+    and record checks; record checks also use it for record_not_found.
+
+    bound_per_target=False bounds per actor only (the row still records the first target),
+    for refusals whose targets are unlimited, such as IDs that do not exist.
 
     At most one row per actor, target and refusal in each window
     (ACCESS_DENIED_AUDIT_WINDOW_SECONDS), so hammering a protected URL or record cannot
@@ -42,16 +54,17 @@ def audit_access_denied(details, *, status_code, target_record_type="route", tar
             seconds=current_app.config.get("ACCESS_DENIED_AUDIT_WINDOW_SECONDS", 60)
         )
         recent = AuditLogEntry.query.filter(
-            AuditLogEntry.action == "access_denied",
+            AuditLogEntry.action == action,
             AuditLogEntry.details == details,
             AuditLogEntry.target_record_type == target_record_type,
             AuditLogEntry.timestamp > datetime.utcnow() - window,
         )
-        recent = recent.filter(
-            AuditLogEntry.target_record_id == target_record_id
-            if target_record_id is not None
-            else AuditLogEntry.target_record_id.is_(None)
-        )
+        if bound_per_target:
+            recent = recent.filter(
+                AuditLogEntry.target_record_id == target_record_id
+                if target_record_id is not None
+                else AuditLogEntry.target_record_id.is_(None)
+            )
         recent = recent.filter(
             AuditLogEntry.user_id == user_id if signed_in else AuditLogEntry.user_id.is_(None)
         )
@@ -59,7 +72,7 @@ def audit_access_denied(details, *, status_code, target_record_type="route", tar
             return
         log_action(
             user_id=user_id,
-            action="access_denied",
+            action=action,
             target_record_type=target_record_type,
             target_record_id=target_record_id,
             details=details,
