@@ -1,5 +1,6 @@
 # Environment / secrets
 .env
+TESTING_CREDENTIALS.md
 
 # Python
 __pycache__/
