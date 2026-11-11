@@ -74,6 +74,22 @@ run.py                  # Entry point
    rows, and can delete nothing. Rerun `flask setup-db-roles` after migrations that add
    tables or functions (empty password answers keep the existing passwords).
 
+   **Make PostgreSQL check the role passwords.** A default local install often uses `trust`
+   for localhost, which accepts any password. Add these lines to `pg_hba.conf` (in the data
+   folder) **above** the existing lines, because PostgreSQL uses the first line that matches:
+   ```
+   local   all             cds_app                                 scram-sha-256
+   local   all             cds_owner                               scram-sha-256
+   host    all             cds_app         127.0.0.1/32            scram-sha-256
+   host    all             cds_app         ::1/128                 scram-sha-256
+   host    all             cds_owner       127.0.0.1/32            scram-sha-256
+   host    all             cds_owner       ::1/128                 scram-sha-256
+   ```
+   Back the file up first, then reload with `SELECT pg_reload_conf();` as `postgres` and check
+   `SELECT * FROM pg_hba_file_rules WHERE error IS NOT NULL;` returns nothing. In this setup
+   `postgres` stays on `trust` for local administration only. A wrong password for `cds_app`
+   or `cds_owner` must now be refused.
+
 6. **Run the app**:
    ```bash
    python run.py
