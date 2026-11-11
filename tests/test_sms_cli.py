@@ -39,3 +39,18 @@ def test_test_sms_reports_recipient_status(monkeypatch):
     assert "api key set: yes" in result.output
     assert "statusCode: 100" in result.output
     assert "configured" not in result.output
+
+
+def test_test_sms_prints_error_type_only(monkeypatch):
+    app = create_app("testing")
+    runner = app.test_cli_runner()
+
+    def failing_send(phone_number, message):
+        raise ConnectionError("https://api.example/?apiKey=leaked-value")
+
+    monkeypatch.setattr("app.cli.send_sms", failing_send)
+
+    result = runner.invoke(app.cli.commands["test-sms"], ["--to", "+254711111111"])
+
+    assert "send failed: ConnectionError" in result.output
+    assert "leaked-value" not in result.output

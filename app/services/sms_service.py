@@ -39,8 +39,12 @@ def _messaging_url(username):
 
 def send_sms(phone_number: str, message: str) -> dict:
     """Send a single SMS. Returns the Africa's Talking API response dict."""
-    username = os.environ.get("AFRICASTALKING_USERNAME", "sandbox")
+    # No silent default: a missing username must not fall back to the sandbox, where real
+    # codes would "succeed" without ever reaching a phone.
+    username = os.environ.get("AFRICASTALKING_USERNAME")
     api_key = os.environ.get("AFRICASTALKING_API_KEY")
+    if not username or not username.strip():
+        raise SmsConfigError("AFRICASTALKING_USERNAME is not configured.")
     if not api_key or not api_key.strip():
         raise SmsConfigError("AFRICASTALKING_API_KEY is not configured.")
 
@@ -64,6 +68,10 @@ def send_sms(phone_number: str, message: str) -> dict:
         response.raise_for_status()
         payload = response.json()
         recipients = payload.get("SMSMessageData", {}).get("Recipients", [])
+        # Zero recipients means nothing was sent (for example an invalid number or an
+        # empty balance). Treat it as a failure, never as success.
+        if not recipients:
+            raise SmsDeliveryError("no_recipients")
         for recipient in recipients:
             status_code = str(recipient.get("statusCode"))
             if status_code not in SUCCESS_STATUS_CODES:

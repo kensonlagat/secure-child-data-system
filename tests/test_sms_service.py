@@ -33,6 +33,7 @@ def test_successful_recipient_status(monkeypatch):
 def test_failed_recipient_status_raises_without_sensitive_values(monkeypatch):
     post = Mock(return_value=_response("403"))
     monkeypatch.setattr(sms_service.requests, "post", post)
+    monkeypatch.setenv("AFRICASTALKING_USERNAME", "sandbox")
     monkeypatch.setenv("AFRICASTALKING_API_KEY", "configured")
 
     with pytest.raises(sms_service.SmsDeliveryError) as error:
@@ -46,6 +47,7 @@ def test_failed_recipient_status_raises_without_sensitive_values(monkeypatch):
 def test_missing_api_key_fails_before_network_call(monkeypatch):
     post = Mock()
     monkeypatch.setattr(sms_service.requests, "post", post)
+    monkeypatch.setenv("AFRICASTALKING_USERNAME", "sandbox")
     monkeypatch.delenv("AFRICASTALKING_API_KEY", raising=False)
 
     with pytest.raises(sms_service.SmsConfigError):
@@ -70,3 +72,33 @@ def test_host_selection_by_username(monkeypatch, username, expected_host):
     sms_service.send_sms("+254711111111", "test body")
 
     assert post.call_args.args[0] == (f"https://{expected_host}/version1/messaging")
+
+
+# --- Self-review fixes (PR #37) ---
+
+
+def test_missing_username_fails_closed_instead_of_using_sandbox(monkeypatch):
+    post = Mock()
+    monkeypatch.setattr(sms_service.requests, "post", post)
+    monkeypatch.delenv("AFRICASTALKING_USERNAME", raising=False)
+    monkeypatch.setenv("AFRICASTALKING_API_KEY", "configured")
+
+    with pytest.raises(sms_service.SmsConfigError):
+        sms_service.send_sms("+254711111111", "test body")
+
+    post.assert_not_called()
+
+
+def test_zero_recipients_is_a_failure_not_a_success(monkeypatch):
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"SMSMessageData": {"Message": "InvalidPhoneNumber", "Recipients": []}}
+    monkeypatch.setattr(sms_service.requests, "post", Mock(return_value=response))
+    monkeypatch.setenv("AFRICASTALKING_USERNAME", "sandbox")
+    monkeypatch.setenv("AFRICASTALKING_API_KEY", "configured")
+
+    with pytest.raises(sms_service.SmsDeliveryError) as error:
+        sms_service.send_sms("+254711111111", "Your verification code is 123456")
+
+    assert error.value.status_code == "no_recipients"
+    assert "123456" not in str(error.value)
