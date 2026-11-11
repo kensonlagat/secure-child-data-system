@@ -45,6 +45,11 @@ class User(db.Model, UserMixin):
     role = db.relationship("Role", back_populates="users")
 
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    # Designated safeguarding lead: a duty on an existing staff account, not a role.
+    # Only administrators can change it, with an OTP, never on their own account (#47).
+    is_safeguarding_lead = db.Column(
+        db.Boolean, default=False, server_default=db.false(), nullable=False
+    )
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     audit_entries = db.relationship("AuditLogEntry", back_populates="user")

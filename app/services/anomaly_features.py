@@ -28,6 +28,7 @@ FAILED_AUTH_ACTIONS = {
     "legal_status_change_approval_otp_failed",
     "password_reset_failed",
     "record_deletion_otp_failed",
+    "safeguarding_lead_change_otp_failed",
 }
 SECONDS_SINCE_NO_PREVIOUS_ACTION = 86400
 FEATURE_COLUMNS = [

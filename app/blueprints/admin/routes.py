@@ -331,3 +331,128 @@ def confirm_record_deletion(record_id):
     )
 
     return jsonify({"message": "Child record deleted successfully.", "status": "deleted"})
+
+
+# --- Designated safeguarding lead flag (#47) ---------------------------------
+# Changing the flag needs an OTP sent to the acting administrator, is audited on every
+# outcome, and is never allowed on the administrator's own account. Setting and clearing
+# use different OTP contexts, so a code requested to set the flag cannot clear it.
+SAFEGUARDING_LEAD_OTP_CONTEXTS = {True: "safeguarding_lead_set", False: "safeguarding_lead_clear"}
+SAFEGUARDING_LEAD_GENERIC_ERROR = "Safeguarding lead change could not be completed."
+
+
+def _json_object_payload():
+    """Return the JSON body when it is an object, otherwise an empty dict."""
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _audit_safeguarding_lead(action, target_user_id, details):
+    log_action(
+        user_id=current_user.id,
+        action=action,
+        target_record_type="user",
+        target_record_id=target_user_id,
+        details=details,
+    )
+
+
+def _safeguarding_lead_target(user_id, value):
+    """Return (target, error_response) after the checks shared by request and confirm."""
+    if not isinstance(value, bool):
+        return None, (jsonify({"error": "value must be true or false."}), 400)
+
+    if user_id == current_user.id:
+        _audit_safeguarding_lead(
+            "safeguarding_lead_change_denied_self",
+            user_id,
+            "Refused: an administrator cannot change their own safeguarding lead flag",
+        )
+        return None, (jsonify({"error": "You cannot change this on your own account."}), 403)
+
+    target = db.session.get(User, user_id)
+    if target is None:
+        return None, (jsonify({"error": "User not found."}), 404)
+    if target.role is None or target.role.name == "parent_guardian":
+        return None, (jsonify({"error": "Only staff accounts can be safeguarding leads."}), 400)
+    if value and not target.is_active:
+        return None, (jsonify({"error": "Inactive accounts cannot be made safeguarding leads."}), 400)
+    if target.is_safeguarding_lead == value:
+        return None, (jsonify({"error": "No change: the flag already has that value."}), 400)
+    return target, None
+
+
+@admin_bp.route("/users/<int:user_id>/safeguarding-lead/request", methods=["POST"])
+@login_required
+@require_role("administrator")
+def request_safeguarding_lead_change(user_id):
+    """Send the acting administrator an OTP to set or clear a user's safeguarding lead flag."""
+    value = _json_object_payload().get("value")
+    target, error = _safeguarding_lead_target(user_id, value)
+    if error:
+        return error
+
+    verb = "set" if value else "clear"
+    try:
+        generate_otp(current_user, SAFEGUARDING_LEAD_OTP_CONTEXTS[value], target_record_id=target.id)
+    except Exception:
+        _audit_safeguarding_lead(
+            "safeguarding_lead_change_otp_send_failed",
+            target.id,
+            f"Could not send the OTP to {verb} the safeguarding lead flag",
+        )
+        return jsonify({"error": "Unable to send the verification code."}), 502
+
+    _audit_safeguarding_lead(
+        "safeguarding_lead_change_requested",
+        target.id,
+        f"Requested to {verb} the safeguarding lead flag",
+    )
+    return jsonify({"message": "Verification code sent to your phone."}), 201
+
+
+@admin_bp.route("/users/<int:user_id>/safeguarding-lead/confirm", methods=["POST"])
+@login_required
+@require_role("administrator")
+def confirm_safeguarding_lead_change(user_id):
+    """Verify the acting administrator's OTP and apply the safeguarding lead change."""
+    payload = _json_object_payload()
+    value = payload.get("value")
+    target, error = _safeguarding_lead_target(user_id, value)
+    if error:
+        return error
+
+    verb = "set" if value else "clear"
+    otp_code = payload.get("otp_code")
+    otp_event = (
+        OTPEvent.query.filter_by(
+            user_id=current_user.id,
+            action_context=SAFEGUARDING_LEAD_OTP_CONTEXTS[value],
+            target_record_id=target.id,
+        )
+        .order_by(OTPEvent.id.desc())
+        .first()
+    )
+    verified = (
+        otp_event is not None
+        and otp_event.user_id == current_user.id  # identity-bound, checked explicitly
+        and isinstance(otp_code, str)
+        and bool(otp_code)
+        and verify_otp(otp_event, otp_code)  # rejects expired, used and over-attempted codes
+    )
+    if not verified:
+        _audit_safeguarding_lead(
+            "safeguarding_lead_change_otp_failed",
+            target.id,
+            f"OTP verification failed for a request to {verb} the safeguarding lead flag",
+        )
+        return jsonify({"error": SAFEGUARDING_LEAD_GENERIC_ERROR}), 400
+
+    target.is_safeguarding_lead = value
+    db.session.commit()
+    _audit_safeguarding_lead(
+        "safeguarding_lead_set" if value else "safeguarding_lead_cleared",
+        target.id,
+        f"Safeguarding lead flag {'set' if value else 'cleared'}",
+    )
+    return jsonify({"message": "Safeguarding lead flag updated.", "is_safeguarding_lead": value})

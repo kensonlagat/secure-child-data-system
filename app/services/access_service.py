@@ -55,6 +55,11 @@ def get_accessible_records(user):
     if role_name == "parent_guardian":
         return _empty_records_query()
 
+    if role_name in {"principal", "home_manager"}:
+        # Oversight roles (#47) see no records until their overview features grant
+        # specific, read-only access (#53, #61). Explicit so the intent is reviewable.
+        return _empty_records_query()
+
     return _empty_records_query()
 
 
