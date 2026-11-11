@@ -1,6 +1,9 @@
 """CLI bootstrap commands for roles and first administrator account."""
 
+import os
+
 import click
+from sqlalchemy import text
 from werkzeug.security import generate_password_hash
 
 from app import db
@@ -138,6 +141,20 @@ def clear_synthetic_audit_data_command():
     and it is limited strictly to rows explicitly marked synthetic for testing
     and training data regeneration.
     """
+    dialect = db.engine.dialect.name
+    if dialect == "postgresql":
+        # The app's database role has no DELETE on the audit log (#72). This SECURITY
+        # DEFINER function is the restricted path: it can only delete is_synthetic rows.
+        deleted_count = db.session.execute(
+            text("SELECT purge_synthetic_audit_entries()")
+        ).scalar()
+        db.session.commit()
+        click.echo(f"Deleted {deleted_count} synthetic audit rows.")
+        return
+    if dialect != "sqlite":
+        raise click.ClickException(f"Unsupported database for synthetic purge: {dialect}")
+
+    # SQLite (tests only): no roles or functions, so delete the synthetic rows directly.
     synthetic_entry_ids = [
         entry_id
         for (entry_id,) in db.session.query(AuditLogEntry.id)
@@ -223,10 +240,71 @@ def score_anomalies_command(since_hours: int):
         click.echo(f"{role_name}: {per_role_counts[role_name]}")
 
 
+def _libpq_dsn(url):
+    """Turn a SQLAlchemy URL into a libpq connection string (drop the +driver suffix)."""
+    return url.replace("postgresql+psycopg2://", "postgresql://", 1)
+
+
+@click.command("setup-db-roles")
+@click.option("--owner-role", default="cds_owner", show_default=True, help="Role that owns the schema and runs migrations.")
+@click.option("--app-role", default="cds_app", show_default=True, help="Low-privilege role the web app connects as.")
+def setup_db_roles_command(owner_role, app_role):
+    """Create or update the owner and app database roles and apply least-privilege grants.
+
+    Run as a PostgreSQL superuser. The connection comes from DB_SETUP_URL, or DATABASE_URL
+    if that is unset. Passwords come from CDS_OWNER_PASSWORD and CDS_APP_PASSWORD, or a
+    hidden prompt (leave it empty to keep an existing role's password). Nothing secret is
+    printed or written to a file.
+    """
+    from flask import current_app
+
+    from app.db_roles import setup_roles
+
+    dsn = _libpq_dsn(os.environ.get("DB_SETUP_URL") or current_app.config["SQLALCHEMY_DATABASE_URI"])
+
+    def password_for(variable, role):
+        value = os.environ.get(variable)
+        if value is None:
+            value = click.prompt(
+                f"Password for {role} (empty keeps the current one)",
+                hide_input=True, default="", show_default=False,
+            )
+        return value or None
+
+    try:
+        steps = setup_roles(
+            dsn,
+            owner_role,
+            app_role,
+            owner_password=password_for("CDS_OWNER_PASSWORD", owner_role),
+            app_password=password_for("CDS_APP_PASSWORD", app_role),
+        )
+    except (ValueError, PermissionError) as error:
+        raise click.ClickException(str(error)) from None
+    for step in steps:
+        click.echo(step)
+
+
+@click.command("check-db-privileges")
+def check_db_privileges_command():
+    """Prove that DATABASE_URL's role cannot change or delete audit rows (#72)."""
+    from flask import current_app
+
+    from app.db_roles import check_privileges
+
+    ok, lines = check_privileges(_libpq_dsn(current_app.config["SQLALCHEMY_DATABASE_URI"]))
+    for line in lines:
+        click.echo(line)
+    if not ok:
+        raise click.ClickException("Database privileges are not least-privilege.")
+
+
 def register_cli_commands(app):
     """Attach project bootstrap CLI commands to the Flask app instance."""
     app.cli.add_command(seed_roles_command)
     app.cli.add_command(create_admin_command)
+    app.cli.add_command(setup_db_roles_command)
+    app.cli.add_command(check_db_privileges_command)
     app.cli.add_command(seed_synthetic_users_command)
     app.cli.add_command(generate_synthetic_audit_data_command)
     app.cli.add_command(clear_synthetic_audit_data_command)

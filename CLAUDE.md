@@ -65,9 +65,14 @@ anomaly detection. Never trade these away for convenience.
 9. Use `require_role()` and `@login_required` for protected routes.
 10. Anomaly detection is alert-only and never blocks. Models are trained on synthetic data only.
     Real data is scored but never trained on.
-11. The web app currently connects as the `postgres` superuser. The least-privilege DB role
-    (issue #72) and row-level security (issue #19) are NOT built yet. Do not describe the audit
-    log as database-enforced until #72 is merged.
+11. Database roles (#72): the web app connects as the low-privilege `cds_app` role, which has
+    `SELECT, INSERT` only on `audit_log_entries`, no `DELETE` or `TRUNCATE` on any table, and no
+    access to `alembic_version`. Migrations run as `cds_owner` via `MIGRATION_DATABASE_URL`.
+    Synthetic audit rows are purged only through the `SECURITY DEFINER` function
+    `purge_synthetic_audit_entries()`. So the audit log is insert-only for the app at the
+    database level; the owner and superuser can still change it, and row-level security (#19)
+    is NOT built. Describe it exactly that way. Rerun `flask setup-db-roles` after migrations
+    that add tables or functions, and `flask check-db-privileges` must pass.
 
 ## Stack and commands (Windows, PowerShell)
 Python 3.12.10, Flask 3.0.3 app factory + blueprints, SQLAlchemy/Flask-Migrate, Flask-Login,
@@ -78,10 +83,12 @@ environment workaround). Local machine notes, including how to start PostgreSQL,
 - Activate venv: `.\.venv\Scripts\Activate.ps1`
 - Run app: `python run.py` (http://127.0.0.1:5000/login)
 - Tests: `python -m pytest`
-- Migrations: `$env:FLASK_APP='run.py'; flask db migrate -m "..."; flask db upgrade`. After
-  generating a migration that touches encrypted columns, check it has `import sqlalchemy_utils`.
+- Migrations: `$env:FLASK_APP='run.py'; flask db migrate -m "..."; flask db upgrade`. They run
+  as the owner role from `MIGRATION_DATABASE_URL`. After generating a migration that touches
+  encrypted columns, check it has `import sqlalchemy_utils`.
 - CLI: `seed-roles`, `create-admin`, `test-sms --to <phone>`, `generate-synthetic-audit-data`,
-  `clear-synthetic-audit-data`, `train-anomaly-models`, `score-anomalies`.
+  `clear-synthetic-audit-data`, `train-anomaly-models`, `score-anomalies`, `setup-db-roles`,
+  `check-db-privileges`.
 - Secrets live in `.env` (gitignored). SMS uses the Africa's Talking sandbox, so messages
   appear in its simulator, not on a phone.
 

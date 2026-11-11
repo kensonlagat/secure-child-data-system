@@ -1,9 +1,16 @@
 import logging
+import os
 from logging.config import fileConfig
 
 from flask import current_app
 
 from alembic import context
+from sqlalchemy import create_engine
+
+# Migrations run as the schema owner, not as the web app's low-privilege role (#72).
+# When MIGRATION_DATABASE_URL is unset they fall back to the app's DATABASE_URL; with the
+# restricted app role that fails on the first DDL statement, which is the safe outcome.
+MIGRATION_DATABASE_URL = os.environ.get("MIGRATION_DATABASE_URL")
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -25,6 +32,8 @@ def get_engine():
 
 
 def get_engine_url():
+    if MIGRATION_DATABASE_URL:
+        return MIGRATION_DATABASE_URL.replace('%', '%%')
     try:
         return get_engine().url.render_as_string(hide_password=False).replace(
             '%', '%%')
@@ -94,7 +103,7 @@ def run_migrations_online():
     if conf_args.get("process_revision_directives") is None:
         conf_args["process_revision_directives"] = process_revision_directives
 
-    connectable = get_engine()
+    connectable = create_engine(MIGRATION_DATABASE_URL) if MIGRATION_DATABASE_URL else get_engine()
 
     with connectable.connect() as connection:
         context.configure(
