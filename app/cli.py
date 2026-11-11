@@ -1,8 +1,10 @@
-"""CLI bootstrap commands for roles and first administrator account."""
+"""CLI bootstrap and diagnostics commands."""
 
 import os
 
 import click
+import re
+
 from sqlalchemy import text
 from werkzeug.security import generate_password_hash
 
@@ -14,6 +16,7 @@ from app.services.anomaly_scoring import score_recent_entries
 from app.services.anomaly_training import train_models_for_all_roles
 from app.services.audit_service import log_action
 from app.services.synthetic_audit_data import generate_synthetic_history
+from app.services.sms_service import SmsDeliveryError, send_sms
 
 ROLE_SEED_DATA = (
     ("administrator", "both"),
@@ -26,6 +29,7 @@ ROLE_SEED_DATA = (
     ("home_manager", "childrens_home"),
 )
 SYNTHETIC_USER_CLASSES = ("Grade 4A", "Grade 5B", "Grade 6A", "Grade 7C", "Grade 8B")
+E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
 def _create_synthetic_user(role: Role, sequence_number: int) -> User:
@@ -96,7 +100,7 @@ def create_admin_command(email: str, password: str, full_name: str, phone_number
             "Administrator role not found. Run `flask seed-roles` first."
         )
 
-    existing_user = User.query.filter_by(email=email).first()
+    existing_user = User.query.filter(db.func.lower(User.email) == email.strip().lower()).first()
     if existing_user:
         raise click.ClickException(f"User with email '{email}' already exists.")
 
@@ -121,6 +125,35 @@ def create_admin_command(email: str, password: str, full_name: str, phone_number
     click.echo(f"Administrator account created with user_id={user.id} and email={user.email}")
 
 
+
+@click.command("test-sms")
+@click.option("--to", "phone_number", required=True, help="E.164 recipient phone number.")
+def test_sms_command(phone_number: str):
+    """Send a diagnostic SMS without exposing credentials or message contents."""
+    if not E164_PHONE_PATTERN.fullmatch(phone_number):
+        raise click.ClickException("Recipient must be a valid E.164 phone number.")
+
+    username = os.environ.get("AFRICASTALKING_USERNAME")
+    api_key = os.environ.get("AFRICASTALKING_API_KEY")
+    click.echo(f"username set: {'yes' if username else 'no'}")
+    click.echo(f"api key set: {'yes' if api_key else 'no'}")
+
+    try:
+        response = send_sms(phone_number, "Test message from the child data system.")
+    except SmsDeliveryError as error:
+        click.echo(f"send failed: SmsDeliveryError (status {error.status_code})")
+        return
+    except Exception as error:
+        # Type only: exception text from the HTTP stack is not needed and may echo request details.
+        click.echo(f"send failed: {type(error).__name__}")
+        return
+
+    recipients = response.get("SMSMessageData", {}).get("Recipients", [])
+    for recipient in recipients:
+        for field_name, field_value in recipient.items():
+            click.echo(f"{field_name}: {field_value}")
+
+
 @click.command("generate-synthetic-audit-data")
 @click.option("--days", default=30, show_default=True, type=click.IntRange(min=1), help="Number of days of history to generate.")
 def generate_synthetic_audit_data_command(days: int):
@@ -142,19 +175,37 @@ def clear_synthetic_audit_data_command():
     and training data regeneration.
     """
     dialect = db.engine.dialect.name
+    try:
+        deleted_count = _purge_synthetic_rows(dialect)
+        # Every purge leaves a real (non-synthetic) audit row with the count. log_action()
+        # commits the deletion and this row together, so a purge can never go unrecorded:
+        # if the audit insert fails, the deletion is rolled back with it.
+        log_action(
+            action="purge_synthetic_audit_data",
+            attempted_identifier="cli:clear-synthetic-audit-data",
+            target_record_type="audit_log",
+            details=f"Purged {deleted_count} synthetic audit rows",
+        )
+    except Exception:
+        db.session.rollback()
+        raise
+    click.echo(f"Deleted {deleted_count} synthetic audit rows.")
+
+
+def _purge_synthetic_rows(dialect: str) -> int:
+    """Delete synthetic audit rows without committing and return how many went."""
     if dialect == "postgresql":
         # The app's database role has no DELETE on the audit log (#72). This SECURITY
         # DEFINER function is the restricted path: it can only delete is_synthetic rows.
-        deleted_count = db.session.execute(
-            text("SELECT purge_synthetic_audit_entries()")
-        ).scalar()
-        db.session.commit()
-        click.echo(f"Deleted {deleted_count} synthetic audit rows.")
-        return
-    if dialect != "sqlite":
-        raise click.ClickException(f"Unsupported database for synthetic purge: {dialect}")
+        return db.session.execute(text("SELECT purge_synthetic_audit_entries()")).scalar()
+    if dialect == "sqlite":
+        return _delete_synthetic_rows_directly()
+    raise click.ClickException(f"Unsupported database for synthetic purge: {dialect}")
 
-    # SQLite (tests only): no roles or functions, so delete the synthetic rows directly.
+
+def _delete_synthetic_rows_directly() -> int:
+    """Delete synthetic audit rows without committing. SQLite has no roles or
+    functions, so this path is for tests only."""
     synthetic_entry_ids = [
         entry_id
         for (entry_id,) in db.session.query(AuditLogEntry.id)
@@ -171,8 +222,7 @@ def clear_synthetic_audit_data_command():
         .filter(AuditLogEntry.is_synthetic.is_(True))
         .delete(synchronize_session=False)
     )
-    db.session.commit()
-    click.echo(f"Deleted {deleted_count} synthetic audit rows.")
+    return deleted_count
 
 
 @click.command("seed-synthetic-users")
@@ -305,6 +355,7 @@ def register_cli_commands(app):
     app.cli.add_command(create_admin_command)
     app.cli.add_command(setup_db_roles_command)
     app.cli.add_command(check_db_privileges_command)
+    app.cli.add_command(test_sms_command)
     app.cli.add_command(seed_synthetic_users_command)
     app.cli.add_command(generate_synthetic_audit_data_command)
     app.cli.add_command(clear_synthetic_audit_data_command)
