@@ -349,9 +349,17 @@ def switch_portal():
     Display only: access rules are unchanged. Other roles are bound to their own mode,
     so only administrators can switch. Every switch is audited.
     """
-    payload = request.get_json(silent=True) or request.form
+    payload = _request_payload()
     portal = _get_payload_value(payload, "portal")
     if portal not in VALID_PORTALS:
+        # The raw value is not logged: it is user input and may contain anything.
+        log_action(
+            user_id=current_user.id,
+            action="portal_switch_rejected",
+            target_record_type="user",
+            target_record_id=current_user.id,
+            details="Rejected a portal switch to an invalid portal",
+        )
         if request.is_json:
             return jsonify({"error": "Choose a valid portal."}), 400
         flash("Choose a valid portal.", "error")

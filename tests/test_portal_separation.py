@@ -256,3 +256,50 @@ def test_create_form_uses_the_active_portal(app):
     assert '<input type="hidden" name="institution_mode" value="childrens_home">' in html
     assert 'name="caseload_worker_id"' in html
     assert 'name="class_assigned"' not in html
+
+
+# --- Adversarial self-review fixes (PR #46) ---
+
+
+def test_non_admin_switch_attempt_is_audited(app):
+    client = app.test_client()
+    sign_in(client, "teacher@example.com", "school")
+
+    assert client.post("/switch-portal", data={"portal": "childrens_home"}).status_code == 403
+
+    with app.app_context():
+        entry = AuditLogEntry.query.filter_by(action="access_denied").one()
+        assert entry.details == "Role check refused for endpoint auth.switch_portal"
+
+
+def test_role_check_refusals_are_audited_on_any_route(app):
+    client = app.test_client()
+    sign_in(client, "teacher@example.com", "school")
+
+    assert client.get("/admin/dashboard").status_code == 403
+
+    with app.app_context():
+        entry = AuditLogEntry.query.filter_by(action="access_denied").one()
+        assert "admin.dashboard" in entry.details
+
+
+def test_rejected_switch_is_audited_without_the_raw_value(app):
+    client = app.test_client()
+    sign_in(client, "admin@example.com", "school")
+
+    client.post("/switch-portal", data={"portal": "<script>everything</script>"})
+
+    with app.app_context():
+        entry = AuditLogEntry.query.filter_by(action="portal_switch_rejected").one()
+        assert "everything" not in entry.details
+
+
+@pytest.mark.parametrize("body", [["childrens_home"], "childrens_home"])
+def test_switch_with_non_object_json_is_rejected_not_crashed(app, body):
+    client = app.test_client()
+    sign_in(client, "admin@example.com", "school")
+
+    response = client.post("/switch-portal", json=body)
+
+    assert response.status_code == 400
+    assert active_portal(client) == "school"

@@ -12,7 +12,7 @@ you the hook points so the pattern is established from day one, rather than
 bolted on later.
 """
 from functools import wraps
-from flask import abort, g
+from flask import abort, g, request
 from flask_login import current_user
 
 
@@ -42,10 +42,17 @@ def require_role(*allowed_roles):
         def wrapped(*args, **kwargs):
             if not current_user.is_authenticated:
                 abort(401)
-            if current_user.role.name not in allowed_roles:
-                # TODO (Sprint 5): log this as a denied-access audit event —
-                # repeated denials are exactly the kind of signal the
-                # anomaly detection module should see.
+            role_name = getattr(current_user.role, "name", None)
+            if role_name not in allowed_roles:
+                # Every role-check refusal is audited (fail closed, never silently).
+                from app.services.audit_service import log_action
+
+                log_action(
+                    user_id=current_user.id,
+                    action="access_denied",
+                    target_record_type="route",
+                    details=f"Role check refused for endpoint {request.endpoint}",
+                )
                 abort(403)
             return view_func(*args, **kwargs)
         return wrapped
