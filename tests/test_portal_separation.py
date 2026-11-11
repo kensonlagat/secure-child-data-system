@@ -349,25 +349,40 @@ def test_different_endpoints_are_audited_separately(app):
     assert len(_denied_rows(app)) == 2
 
 
+def _add_unauthenticated_probe(app):
+    """A route guarded only by require_role (no login_required), so an anonymous request
+    reaches require_role's 401 branch. Test-only: POST /register used to play this part."""
+    from app.middleware.rbac import require_role
+
+    @require_role("administrator")
+    def probe():
+        return "ok"
+
+    app.add_url_rule("/test-only/probe", "test_probe", probe, methods=["GET", "POST"])
+    return "/test-only/probe"
+
+
 def test_unauthenticated_refusal_writes_safe_anonymous_identifier(app):
     client = app.test_client()
+    path = _add_unauthenticated_probe(app)
 
-    response = client.post("/register", data={"email": "x@example.com"})
+    response = client.post(path, data={"email": "x@example.com"})
 
     assert response.status_code == 401
     rows = _denied_rows(app)
     assert len(rows) == 1
     assert rows[0].user_id is None
     assert rows[0].attempted_identifier == "anonymous"
-    assert rows[0].details == "Unauthenticated request refused for endpoint auth.register"
+    assert rows[0].details == "Unauthenticated request refused for endpoint test_probe"
     assert "x@example.com" not in (rows[0].details + rows[0].attempted_identifier)
 
 
 def test_rotating_ip_addresses_does_not_lift_the_anonymous_bound(app):
     client = app.test_client()
+    path = _add_unauthenticated_probe(app)
 
     for i in range(30):
-        client.post("/register", data={}, environ_base={"REMOTE_ADDR": f"203.0.113.{i}"})
+        client.post(path, data={}, environ_base={"REMOTE_ADDR": f"203.0.113.{i}"})
 
     assert len(_denied_rows(app)) == 1
 
@@ -375,7 +390,7 @@ def test_rotating_ip_addresses_does_not_lift_the_anonymous_bound(app):
 @pytest.mark.parametrize("signed_in, expected", [(True, 403), (False, 401)])
 def test_refusal_happens_even_if_the_audit_write_fails(app, monkeypatch, signed_in, expected):
     client = app.test_client()
-    path = "/admin/dashboard" if signed_in else "/register"
+    path = "/admin/dashboard" if signed_in else _add_unauthenticated_probe(app)
     if signed_in:
         sign_in(client, "teacher@example.com", "school")
 

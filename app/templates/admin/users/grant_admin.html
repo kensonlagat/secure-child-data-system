@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Activate administrator | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Activate {{ user.full_name }}</h1>
+    <p class="lead">Making someone an administrator gives them access to every record. Enter the 6-digit code we sent
+        to your phone to confirm. The account stays inactive until you do.</p>
+</section>
+
+<section class="panel">
+    {% if error %}
+    <div class="notice error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" class="form-grid" action="{{ url_for('admin.grant_admin', user_id=user.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="otp_code">
+            <span class="field-label">One-time code</span>
+            <input id="otp_code" name="otp_code" class="otp-input" inputmode="numeric" autocomplete="one-time-code"
+                required autofocus>
+            <span class="field-help">Expires in 5 minutes. 5 attempts allowed.</span>
+        </label>
+        <div class="form-actions">
+            <button type="submit" class="primary-button">Activate administrator</button>
+            <a class="secondary-button" href="{{ url_for('admin.list_users') }}">Not now</a>
+        </div>
+    </form>
+
+    <form method="post" action="{{ url_for('admin.resend_admin_grant', user_id=user.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="action-link-button">Send a new code</button>
+    </form>
+</section>
+{% endblock %}

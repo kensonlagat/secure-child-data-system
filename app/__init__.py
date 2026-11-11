@@ -30,9 +30,14 @@ def load_user(user_id):
     from app.models.user import User
 
     try:
-        return db.session.get(User, int(user_id))
+        user = db.session.get(User, int(user_id))
     except (TypeError, ValueError):
         return None
+    # A deactivated account is signed out on its very next request (#30): Flask-Login only
+    # checks is_active at sign-in, so the session would otherwise outlive deactivation.
+    if user is None or not user.is_active:
+        return None
+    return user
 
 
 def create_app(config_name="development"):

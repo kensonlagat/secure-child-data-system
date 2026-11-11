@@ -456,3 +456,7 @@ def confirm_safeguarding_lead_change(user_id):
         f"Safeguarding lead flag {'set' if value else 'cleared'}",
     )
     return jsonify({"message": "Safeguarding lead flag updated.", "is_safeguarding_lead": value})
+
+
+# User management routes live in their own module and register on admin_bp.
+from app.blueprints.admin import user_routes  # noqa: E402,F401

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Users | Child Data System{% endblock %}
+
+{% block head_scripts %}
+<script src="{{ url_for('static', filename='js/user-admin.js') }}" defer></script>
+{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Users</h1>
+    <p class="lead">{{ ui.mode_label(active_portal) }} staff and all administrators. New staff get an SMS code to set
+        their own password.</p>
+</section>
+
+{# Display only: show this portal's staff plus administrators. The server enforces access. #}
+{% set shown = users | selectattr('role.institution_mode', 'in', [active_portal, 'both']) | list %}
+
+<section class="panel" aria-labelledby="users-title">
+    <div class="section-head">
+        <h2 id="users-title">{{ shown | length }} account{{ '' if shown | length == 1 else 's' }}</h2>
+        <a class="primary-button" href="{{ url_for('admin.new_user_form') }}">New user</a>
+    </div>
+
+    <div id="user-action-message" class="notice" aria-live="polite" hidden></div>
+
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="users-title">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Class</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Safeguarding lead</th>
+                    <th scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in shown %}
+                {% set is_self = user.id == current_user.id %}
+                <tr>
+                    <td>{{ user.full_name }}{% if is_self %} <span class="badge">You</span>{% endif %}</td>
+                    <td class="mono">{{ user.email }}</td>
+                    <td>{{ ui.ROLE_LABELS.get(user.role.name, user.role.name) }}</td>
+                    <td>{{ user.assigned_class or '' }}</td>
+                    <td>
+                        {% if user.is_active %}<span class="status-pill status-approved">Active</span>
+                        {% elif user.role.name == 'administrator' %}<span class="status-pill status-pending_otp">Pending or inactive</span>
+                        {% else %}<span class="status-pill status-dismissed">Inactive</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if user.is_safeguarding_lead %}<span class="status-pill status-new">Lead</span>{% else %}<span class="muted">No</span>{% endif %}
+                    </td>
+                    <td class="table-actions">
+                        {% if is_self %}
+                        <span class="muted">Your own account</span>
+                        {% else %}
+                        <a class="action-link-button" href="{{ url_for('admin.edit_user', user_id=user.id) }}">Edit</a>
+                        {% if user.is_active %}
+                        <form method="post" action="{{ url_for('admin.deactivate_user', user_id=user.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="action-button danger">Deactivate</button>
+                        </form>
+                        <button type="button" class="action-button" data-safeguarding-user="{{ user.id }}"
+                            data-safeguarding-value="{{ 'false' if user.is_safeguarding_lead else 'true' }}">
+                            {{ 'Remove lead' if user.is_safeguarding_lead else 'Make lead' }}</button>
+                        {% else %}
+                        <form method="post" action="{{ url_for('admin.reactivate_user', user_id=user.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="action-button">Reactivate</button>
+                        </form>
+                        {% endif %}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="empty-state"><strong>No accounts yet.</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<dialog class="modal" id="safeguarding-dialog" aria-labelledby="safeguarding-dialog-title">
+    <h2 id="safeguarding-dialog-title">Confirm safeguarding lead change</h2>
+    <p class="muted">We sent a 6-digit code to your phone. It expires in 5 minutes.</p>
+    <form class="form-grid" id="safeguarding-form">
+        <label class="field-group" for="safeguarding-otp">
+            <span class="field-label">One-time code</span>
+            <input id="safeguarding-otp" class="otp-input" inputmode="numeric" autocomplete="one-time-code" required>
+        </label>
+        <div class="form-actions">
+            <button type="submit" class="primary-button">Confirm</button>
+            <button type="button" class="secondary-button" id="safeguarding-cancel">Cancel</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}

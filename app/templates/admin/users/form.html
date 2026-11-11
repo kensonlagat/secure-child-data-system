@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% set editing = user is not none %}
+{% set editing_admin = editing and user.role.name == 'administrator' %}
+
+{% block title %}{{ 'Edit user' if editing else 'New user' }} | Child Data System{% endblock %}
+
+{% macro value(field, fallback='') -%}
+{{ values.get(field) if values.get(field) is not none else fallback }}
+{%- endmacro %}
+
+{% macro error(field) -%}
+{% if errors.get(field) %}<span class="field-error" id="{{ field }}-error">{{ errors[field] }}</span>{% endif %}
+{%- endmacro %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>{{ 'Edit ' ~ user.full_name if editing else 'New user' }}</h1>
+    <p class="lead">
+        {% if editing %}Changes are recorded in the audit log.
+        {% else %}The person gets an SMS code to set their own password. Nobody else ever knows it.
+        New administrators also need a code sent to your phone before they become active.{% endif %}
+    </p>
+</section>
+
+<section class="panel">
+    {% if errors %}
+    <div class="notice error" role="alert">Please fix the highlighted fields.</div>
+    {% endif %}
+
+    <form method="post" class="form-grid two-col"
+        action="{{ url_for('admin.edit_user', user_id=user.id) if editing else url_for('admin.create_user') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <label class="field-group" for="full_name">
+            <span class="field-label">Full name</span>
+            <input id="full_name" name="full_name" required maxlength="120" autocomplete="off"
+                value="{{ value('full_name', user.full_name if editing else '') }}"
+                {% if errors.get('full_name') %}aria-invalid="true" aria-describedby="full_name-error" {% endif %}>
+            {{ error('full_name') }}
+        </label>
+
+        {% if not editing %}
+        <label class="field-group" for="email">
+            <span class="field-label">Email</span>
+            <input id="email" name="email" type="email" required maxlength="120" autocomplete="off"
+                value="{{ value('email') }}"
+                {% if errors.get('email') %}aria-invalid="true" aria-describedby="email-error" {% endif %}>
+            {{ error('email') }}
+        </label>
+        {% endif %}
+
+        <label class="field-group" for="phone_number">
+            <span class="field-label">Phone (international format)</span>
+            <input id="phone_number" name="phone_number" required placeholder="+254712345678" autocomplete="off"
+                value="{{ value('phone_number', user.phone_number if editing else '') }}"
+                {% if editing_admin %}readonly aria-describedby="phone-help" {% endif %}
+                {% if errors.get('phone_number') %}aria-invalid="true" {% endif %}>
+            {% if editing_admin %}<span class="field-help" id="phone-help">An administrator's phone can't be changed
+                here: codes for that account are sent to it.</span>{% endif %}
+            {{ error('phone_number') }}
+        </label>
+
+        <label class="field-group" for="role_id">
+            <span class="field-label">Role</span>
+            <select id="role_id" name="role_id" required {% if errors.get('role_id') %}aria-invalid="true" aria-describedby="role_id-error" {% endif %}>
+                {% set current_role = value('role_id', user.role_id if editing else '') | string %}
+                <option value="">Choose a role</option>
+                {% for role in roles %}
+                <option value="{{ role.id }}" {% if current_role == role.id | string %}selected{% endif %}>
+                    {{ ui.ROLE_LABELS.get(role.name, role.name) }} ({{ ui.mode_label(role.institution_mode) }})</option>
+                {% endfor %}
+            </select>
+            {{ error('role_id') }}
+        </label>
+
+        <label class="field-group" for="assigned_class">
+            <span class="field-label">Class (teachers only)</span>
+            <input id="assigned_class" name="assigned_class" maxlength="50" autocomplete="off"
+                value="{{ value('assigned_class', (user.assigned_class or '') if editing else '') }}">
+            {{ error('assigned_class') }}
+        </label>
+
+        <div class="form-actions">
+            <button type="submit" class="primary-button">{{ 'Save changes' if editing else 'Create account' }}</button>
+            <a class="secondary-button" href="{{ url_for('admin.list_users') }}">Cancel</a>
+        </div>
+    </form>
+</section>
+{% endblock %}
