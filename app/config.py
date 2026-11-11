@@ -24,6 +24,9 @@ class BaseConfig:
     LOGIN_IP_MAX_FAILURES = 100
     # At most one access_denied audit row per actor, endpoint and outcome in this window.
     ACCESS_DENIED_AUDIT_WINDOW_SECONDS = 60
+    # On top of the per-record bound: at most this many record-level access_denied rows per
+    # user in each window, so cycling through many forbidden records cannot flood the log.
+    ACCESS_DENIED_RECORD_CAP_PER_WINDOW = 20
 
     # Field-level encryption key for sensitive child record columns.
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
