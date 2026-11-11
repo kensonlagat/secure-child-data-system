@@ -15,7 +15,7 @@ from app import db
 from app.middleware.rbac import require_role
 from app.models.audit_log import AuditLogEntry
 from app.models.otp_event import OTPEvent
-from app.models.user import Role, User
+from app.models.user import User
 from app.services.audit_service import log_action
 from app.services.otp_service import generate_otp, verify_otp
 
@@ -186,58 +186,6 @@ def _latest_password_reset_otp(user_id: int) -> Optional[OTPEvent]:
         .order_by(OTPEvent.id.desc())
         .first()
     )
-
-
-@auth_bp.route("/register", methods=["POST"])
-@require_role("administrator")
-def register():
-    """Create a user account with role assignment, guarded by admin RBAC."""
-    payload = _request_payload()
-    email = _get_payload_value(payload, "email")
-    password = _get_payload_value(payload, "password")
-    full_name = _get_payload_value(payload, "full_name")
-    phone_number = _get_payload_value(payload, "phone_number")
-    role_id = _get_payload_value(payload, "role_id")
-
-    if not _is_valid_email(email):
-        return jsonify({"error": "Invalid email format."}), 400
-
-    if password is None or not _is_valid_password(password):
-        return jsonify({"error": "Password must be at least 8 characters."}), 400
-
-    if not full_name or not phone_number or not role_id:
-        return jsonify({"error": "full_name, phone_number and role_id are required."}), 400
-
-    try:
-        role_id = int(role_id)
-    except (TypeError, ValueError):
-        return jsonify({"error": "role_id must be an integer."}), 400
-
-    role = db.session.get(Role, role_id)
-    if role is None:
-        return jsonify({"error": "Invalid role_id."}), 400
-
-    existing_user = User.query.filter_by(email=email).first()
-    if existing_user:
-        return jsonify({"error": "A user with this email already exists."}), 409
-
-    user = User()
-    user.full_name = full_name
-    user.email = email
-    user.phone_number = phone_number
-    user.password_hash = generate_password_hash(password)
-    user.role_id = role_id
-    db.session.add(user)
-    db.session.commit()
-
-    log_action(
-        user_id=current_user.id,
-        action="create_user",
-        target_record_type="user",
-        target_record_id=user.id,
-        details=f"Created user account for {user.email}",
-    )
-    return jsonify({"message": "User registered successfully.", "user_id": user.id}), 201
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
