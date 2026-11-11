@@ -9,11 +9,11 @@ Scope per proposal:
 """
 from datetime import datetime
 
-from flask import Blueprint, abort, jsonify, render_template, request, url_for
+from flask import Blueprint, abort, current_app, jsonify, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app import db
-from app.middleware.rbac import require_role
+from app.middleware.rbac import audit_access_denied, require_role
 from app.models.child_record import ChildRecord
 from app.models.legal_status_change_request import LegalStatusChangeRequest, VALID_LEGAL_STATUSES
 from app.services.access_service import (
@@ -36,19 +36,33 @@ def _serialize_record(record, visible_fields):
 
 
 def require_record_access(record_id):
-    """Return a record only when the current user is allowed to access it."""
+    """Return a record only when the current user is allowed to access it.
+
+    Missing and forbidden records both answer 404, so a response never reveals whether a
+    record ID exists. The audit log keeps the real reason (bounded, never blocks the 404).
+    """
     record = db.session.get(ChildRecord, record_id)
     if record is None:
-        abort(404)
-    if not can_access_record(current_user, record):
-        log_action(
-            user_id=current_user.id,
-            action="access_denied",
+        audit_access_denied(
+            "Child record not found in children's home mode",
+            status_code=404,
             target_record_type="child_record",
             target_record_id=record_id,
-            details="Denied child record access in children's home mode",
+            action="record_not_found",
+            # Missing IDs are unlimited, so bound per user rather than per ID.
+            bound_per_target=False,
         )
-        abort(403)
+        abort(404)
+    if not can_access_record(current_user, record):
+        audit_access_denied(
+            "Denied child record access in children's home mode",
+            status_code=404,
+            target_record_type="child_record",
+            target_record_id=record_id,
+            # Per-user cap across records, on top of the per-record bound.
+            actor_cap=current_app.config["ACCESS_DENIED_RECORD_CAP_PER_WINDOW"],
+        )
+        abort(404)
     return record
 
 

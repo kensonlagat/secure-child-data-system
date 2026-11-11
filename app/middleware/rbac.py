@@ -22,13 +22,30 @@ from flask_login import current_user
 ANONYMOUS_IDENTIFIER = "anonymous"
 
 
-def _audit_refusal(status_code):
-    """Audit a refused request, bounded so it cannot be used to flood the audit log.
+def audit_access_denied(
+    details,
+    *,
+    status_code,
+    target_record_type="route",
+    target_record_id=None,
+    action="access_denied",
+    bound_per_target=True,
+    actor_cap=None,
+):
+    """Write a bounded refusal audit row (access_denied by default). Shared by role checks
+    and record checks; record checks also use it for record_not_found.
 
-    At most one row per actor, endpoint and outcome in each window
-    (ACCESS_DENIED_AUDIT_WINDOW_SECONDS). The actor is the user for signed-in requests.
-    Anonymous refusals share one actor per endpoint, so rotating IP addresses does not
-    lift the bound. Any failure here is swallowed: the refusal itself must always happen.
+    bound_per_target=False bounds per actor only (the row still records the first target),
+    for refusals whose targets are unlimited, such as IDs that do not exist.
+
+    actor_cap, when set, also limits the actor to that many rows of this action and target
+    type per window, across all targets (for example 100 different forbidden records).
+
+    At most one row per actor, target and refusal in each window
+    (ACCESS_DENIED_AUDIT_WINDOW_SECONDS), so hammering a protected URL or record cannot
+    flood the audit log. The actor is the user for signed-in requests. Anonymous refusals
+    share one actor per target, so rotating IP addresses does not lift the bound. Any
+    failure here is swallowed: the caller's refusal must always happen.
     """
     from app import db
     from app.models.audit_log import AuditLogEntry
@@ -37,30 +54,40 @@ def _audit_refusal(status_code):
     try:
         signed_in = current_user.is_authenticated
         user_id = current_user.id if signed_in else None
-        details = (
-            f"Role check refused for endpoint {request.endpoint}"
-            if signed_in
-            else f"Unauthenticated request refused for endpoint {request.endpoint}"
-        )
         window = timedelta(
             seconds=current_app.config.get("ACCESS_DENIED_AUDIT_WINDOW_SECONDS", 60)
         )
         recent = AuditLogEntry.query.filter(
-            AuditLogEntry.action == "access_denied",
+            AuditLogEntry.action == action,
             AuditLogEntry.details == details,
+            AuditLogEntry.target_record_type == target_record_type,
             AuditLogEntry.timestamp > datetime.utcnow() - window,
         )
-        recent = (
-            recent.filter(AuditLogEntry.user_id == user_id)
-            if signed_in
-            else recent.filter(AuditLogEntry.user_id.is_(None))
+        if bound_per_target:
+            recent = recent.filter(
+                AuditLogEntry.target_record_id == target_record_id
+                if target_record_id is not None
+                else AuditLogEntry.target_record_id.is_(None)
+            )
+        recent = recent.filter(
+            AuditLogEntry.user_id == user_id if signed_in else AuditLogEntry.user_id.is_(None)
         )
         if recent.first() is not None:
             return
+        if actor_cap is not None:
+            actor_rows = AuditLogEntry.query.filter(
+                AuditLogEntry.action == action,
+                AuditLogEntry.target_record_type == target_record_type,
+                AuditLogEntry.timestamp > datetime.utcnow() - window,
+                AuditLogEntry.user_id == user_id if signed_in else AuditLogEntry.user_id.is_(None),
+            ).count()
+            if actor_rows >= actor_cap:
+                return  # the cap's worth of rows already shows the burst
         log_action(
             user_id=user_id,
-            action="access_denied",
-            target_record_type="route",
+            action=action,
+            target_record_type=target_record_type,
+            target_record_id=target_record_id,
             details=details,
             attempted_identifier=None if signed_in else ANONYMOUS_IDENTIFIER,
         )
@@ -69,6 +96,17 @@ def _audit_refusal(status_code):
         current_app.logger.warning(
             "Could not audit a %s refusal for endpoint %s", status_code, request.endpoint
         )
+
+
+def _audit_refusal(status_code):
+    """Audit a refused role check (bounded, never blocks the refusal)."""
+    signed_in = current_user.is_authenticated
+    details = (
+        f"Role check refused for endpoint {request.endpoint}"
+        if signed_in
+        else f"Unauthenticated request refused for endpoint {request.endpoint}"
+    )
+    audit_access_denied(details, status_code=status_code)
 
 
 def register_rbac_hooks(app):
