@@ -9,6 +9,7 @@ from app.models.audit_log import AuditLogEntry
 from app.models.anomaly_alert import AnomalyAlert
 from app.models.otp_event import OTPEvent
 from app.models.legal_status_change_request import LegalStatusChangeRequest
+from app.models.school_class import ClassTeacherAssignment, Enrolment, SchoolClass
 
 __all__ = [
 	"User",
@@ -18,4 +19,7 @@ __all__ = [
 	"AnomalyAlert",
 	"OTPEvent",
 	"LegalStatusChangeRequest",
+	"SchoolClass",
+	"ClassTeacherAssignment",
+	"Enrolment",
 ]
