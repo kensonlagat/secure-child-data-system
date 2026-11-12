@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash
 
 from app import create_app, db
+from class_helpers import put_in_class
 from app.config import BaseConfig
 from app.models.audit_log import AuditLogEntry
 from app.models.child_record import ChildRecord
@@ -66,12 +67,14 @@ def app(monkeypatch):
             db.session.add(user)
             db.session.flush()
             ids[key] = user.id
+        school_child = ChildRecord(full_name="School Child", date_of_birth=date(2014, 1, 1), institution_mode="school")
         db.session.add_all([
-            ChildRecord(full_name="School Child", date_of_birth=date(2014, 1, 1),
-                        institution_mode="school", class_assigned="Grade 6A"),
+            school_child,
             ChildRecord(full_name="Home Child", date_of_birth=date(2012, 1, 1),
                         institution_mode="childrens_home", legal_status="in_state_care"),
         ])
+        db.session.flush()
+        put_in_class("Grade 6A", children=[school_child])
         db.session.commit()
         application.config["IDS"] = ids
     yield application

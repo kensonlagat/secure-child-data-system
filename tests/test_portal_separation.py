@@ -11,6 +11,7 @@ from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash
 
 from app import create_app, db
+from class_helpers import put_in_class
 from app.config import BaseConfig
 from app.models.audit_log import AuditLogEntry
 from app.models.child_record import ChildRecord
@@ -33,12 +34,11 @@ def app(monkeypatch):
             db.session.add(roles[name])
         db.session.flush()
 
-        def add_user(email, role, assigned_class=None):
+        def add_user(email, role):
             user = User(
                 email=email,
                 full_name=f"Test {role}",
                 phone_number="+254700000001",
-                assigned_class=assigned_class,
                 password_hash=generate_password_hash("Password#2026"),
                 role_id=roles[role].id,
                 is_active=True,
@@ -47,14 +47,13 @@ def app(monkeypatch):
             return user
 
         add_user("admin@example.com", "administrator")
-        add_user("teacher@example.com", "teacher", "Grade 6A")
+        teacher = add_user("teacher@example.com", "teacher")
         worker = add_user("worker@example.com", "social_worker")
         db.session.flush()
         school = ChildRecord(
             full_name="School Child",
             date_of_birth=date(2014, 1, 15),
             institution_mode="school",
-            class_assigned="Grade 6A",
             guardian_contact="+254700111223",
         )
         home = ChildRecord(
@@ -65,6 +64,8 @@ def app(monkeypatch):
             caseload_worker_id=worker.id,
         )
         db.session.add_all([school, home])
+        db.session.flush()
+        put_in_class("Grade 6A", children=[school], teachers=[teacher])
         db.session.commit()
         application.config["SCHOOL_RECORD_ID"] = school.id
         application.config["HOME_RECORD_ID"] = home.id
@@ -204,6 +205,7 @@ def test_school_list_hides_childrens_home_columns_but_data_is_unchanged(app):
     assert "Legal status" not in html
     assert "Caseload worker id" not in html
     assert "Guardian contact" in html
+    assert '<th scope="col">Class ' in html  # the derived class label (#48)
 
     # Hide only: the JSON API still returns what access_service allows for the role.
     rows = client.get("/school/records", headers={"Accept": "application/json"}).get_json()
@@ -218,7 +220,7 @@ def test_home_list_hides_school_columns(app):
 
     assert "Legal status" in html
     assert "Guardian contact" not in html
-    assert "Class assigned" not in html
+    assert '<th scope="col">Class ' not in html
 
 
 def test_edit_form_shows_only_fields_for_the_record_mode(app):
@@ -232,7 +234,7 @@ def test_edit_form_shows_only_fields_for_the_record_mode(app):
     assert 'name="caseload_worker_id"' not in school_html
     assert 'name="caseload_worker_id"' in home_html
     assert 'name="guardian_contact"' not in home_html
-    assert 'name="class_assigned"' not in home_html
+    assert 'name="class_id"' not in home_html
 
 
 def test_admin_viewing_other_mode_by_url_is_not_blocked(app):
@@ -255,7 +257,7 @@ def test_create_form_uses_the_active_portal(app):
 
     assert '<input type="hidden" name="institution_mode" value="childrens_home">' in html
     assert 'name="caseload_worker_id"' in html
-    assert 'name="class_assigned"' not in html
+    assert 'name="class_id"' not in html
 
 
 # --- Adversarial self-review fixes (PR #46) ---
