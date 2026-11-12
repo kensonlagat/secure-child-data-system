@@ -21,12 +21,12 @@ PROTECTED_FIELDS = {
     "deleted_at",
     "created_at",
     "updated_at",
+    "class_assigned",  # #48: class changes go only through the audited enrolment actions
 }
 ADMIN_ALLOWLIST = [
     "full_name",
     "date_of_birth",
     "guardian_contact",
-    "class_assigned",
     "medical_notes",
     "caseload_worker_id",
 ]
@@ -35,7 +35,6 @@ ADMIN_ALLOWLIST = [
 def _user(role_name):
     return SimpleNamespace(
         id=1,
-        assigned_class="Grade 6A",
         role=SimpleNamespace(name=role_name),
     )
 

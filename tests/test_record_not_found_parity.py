@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash
 
 from app import create_app, db
+from class_helpers import put_in_class
 from app.config import BaseConfig
 from app.models.audit_log import AuditLogEntry
 from app.models.child_record import ChildRecord
@@ -26,18 +27,21 @@ def app(monkeypatch):
         worker_role = Role(name="social_worker", institution_mode="childrens_home")
         db.session.add_all([teacher_role, worker_role])
         db.session.flush()
+        teacher = User(email="teacher@example.com", full_name="T", phone_number="+254700000001",
+                       password_hash=generate_password_hash(PASSWORD), role_id=teacher_role.id)
         db.session.add_all([
-            User(email="teacher@example.com", full_name="T", phone_number="+254700000001", assigned_class="Grade 6A",
-                 password_hash=generate_password_hash(PASSWORD), role_id=teacher_role.id),
+            teacher,
             User(email="worker@example.com", full_name="W", phone_number="+254700000002",
                  password_hash=generate_password_hash(PASSWORD), role_id=worker_role.id),
         ])
         mine = ChildRecord(full_name="Mine", date_of_birth=date(2014, 1, 1), institution_mode="school",
-                           class_assigned="Grade 6A", guardian_contact="+254711111111")
-        forbidden = ChildRecord(full_name="Other class", date_of_birth=date(2014, 1, 1), institution_mode="school",
-                                class_assigned="Grade 7C")
+                           guardian_contact="+254711111111")
+        forbidden = ChildRecord(full_name="Other class", date_of_birth=date(2014, 1, 1), institution_mode="school")
         home = ChildRecord(full_name="Home", date_of_birth=date(2012, 1, 1), institution_mode="childrens_home")
         db.session.add_all([mine, forbidden, home])
+        db.session.flush()
+        put_in_class("Grade 6A", children=[mine], teachers=[teacher])
+        put_in_class("Grade 7C", children=[forbidden])
         db.session.commit()
         application.config.update(MINE=mine.id, FORBIDDEN=forbidden.id, HOME=home.id)
     yield application
@@ -134,9 +138,11 @@ def test_the_404_happens_even_if_the_audit_write_fails(app, monkeypatch):
 
 def _add_forbidden_records(app, count):
     with app.app_context():
-        records = [ChildRecord(full_name=f"Other {i}", date_of_birth=date(2014, 1, 1), institution_mode="school",
-                               class_assigned="Grade 7C") for i in range(count)]
+        records = [ChildRecord(full_name=f"Other {i}", date_of_birth=date(2014, 1, 1), institution_mode="school")
+                   for i in range(count)]
         db.session.add_all(records)
+        db.session.flush()
+        put_in_class("Grade 7C", children=records)
         db.session.commit()
         return [r.id for r in records]
 

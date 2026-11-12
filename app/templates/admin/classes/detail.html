@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Class {{ school_class.label }} | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow"><a href="{{ url_for('admin.list_classes') }}">Classes</a></p>
+    <h1>{{ school_class.label }} <span class="muted">({{ school_class.academic_year }})</span></h1>
+    <p class="lead">
+        {% if school_class.is_active %}Active. Its teachers see the records of the children enrolled here.
+        {% else %}Archived. Its teachers no longer see these records.{% endif %}
+    </p>
+</section>
+
+<section class="panel" aria-labelledby="teachers-title">
+    <h2 id="teachers-title">Teachers</h2>
+    {% if teachers %}
+    <ul class="plain-list">
+        {% for teacher in teachers %}
+        <li>{{ teacher.full_name }}
+            <form method="post" class="inline-form"
+                action="{{ url_for('admin.unassign_class_teacher', class_id=school_class.id, user_id=teacher.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="secondary-button">Remove</button>
+            </form>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No teachers assigned.</p>
+    {% endif %}
+    {% if school_class.is_active and assignable %}
+    <form method="post" action="{{ url_for('admin.assign_class_teacher', class_id=school_class.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="user_id">
+            <span class="field-label">Assign a teacher</span>
+            <select id="user_id" name="user_id" required>
+                {% for teacher in assignable %}<option value="{{ teacher.id }}">{{ teacher.full_name }}</option>{% endfor %}
+            </select>
+        </label>
+        <div class="form-actions"><button type="submit" class="primary-button">Assign</button></div>
+    </form>
+    {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="children-title">
+    <h2 id="children-title">{{ enrolled | length }} enrolled</h2>
+    {% if enrolled %}
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="children-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Name</th><th scope="col">Move to</th><th scope="col">Remove</th></tr></thead>
+            <tbody>
+                {% for child in enrolled %}
+                <tr>
+                    <td>{{ child.full_name }}</td>
+                    <td>
+                        {% if other_classes %}
+                        <form method="post" class="inline-form" action="{{ url_for('admin.move_child_class', record_id=child.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <label class="visually-hidden" for="move-{{ loop.index }}">Move to class</label>
+                            <select id="move-{{ loop.index }}" name="class_id">
+                                {% for other in other_classes %}<option value="{{ other.id }}">{{ other.label }} ({{ other.academic_year }})</option>{% endfor %}
+                            </select>
+                            <button type="submit" class="secondary-button">Move</button>
+                        </form>
+                        {% else %}<span class="muted">No other active class</span>{% endif %}
+                    </td>
+                    <td>
+                        <form method="post" class="inline-form" action="{{ url_for('admin.remove_child_class', record_id=child.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="secondary-button">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">No children enrolled.</p>
+    {% endif %}
+
+    {% if school_class.is_active and unenrolled %}
+    <form method="post" action="{{ url_for('admin.enrol_in_class', class_id=school_class.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="child_record_id">
+            <span class="field-label">Enrol a child with no current class</span>
+            <select id="child_record_id" name="child_record_id" required>
+                {% for child in unenrolled %}<option value="{{ child.id }}">{{ child.full_name }}</option>{% endfor %}
+            </select>
+        </label>
+        <div class="form-actions"><button type="submit" class="primary-button">Enrol</button></div>
+    </form>
+    {% endif %}
+</section>
+
+{% if enrolled and other_classes %}
+<section class="panel" aria-labelledby="promote-title">
+    <h2 id="promote-title">Year-end promotion</h2>
+    <p class="muted">Moves every child currently in {{ school_class.label }} to the chosen class in one step, recorded
+        as one audit entry.</p>
+    <form method="post" action="{{ url_for('admin.promote_class', class_id=school_class.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="target_class_id">
+            <span class="field-label">Promote to</span>
+            <select id="target_class_id" name="target_class_id" required>
+                {% for other in other_classes %}<option value="{{ other.id }}">{{ other.label }} ({{ other.academic_year }})</option>{% endfor %}
+            </select>
+        </label>
+        <div class="form-actions"><button type="submit" class="primary-button">Promote all {{ enrolled | length }}</button></div>
+    </form>
+</section>
+{% endif %}
+
+<section class="panel" aria-labelledby="settings-title">
+    <h2 id="settings-title">Class settings</h2>
+    <form method="post" action="{{ url_for('admin.update_class', class_id=school_class.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="name">
+            <span class="field-label">Name</span>
+            <input id="name" name="name" required maxlength="50" value="{{ school_class.name }}" autocomplete="off">
+        </label>
+        <label class="field-group" for="stream">
+            <span class="field-label">Stream</span>
+            <input id="stream" name="stream" maxlength="10" value="{{ school_class.stream }}" autocomplete="off">
+        </label>
+        <label class="field-group" for="academic_year">
+            <span class="field-label">Academic year</span>
+            <input id="academic_year" name="academic_year" type="number" required min="2000" max="2100"
+                value="{{ school_class.academic_year }}">
+        </label>
+        <div class="form-actions"><button type="submit" class="primary-button">Save</button></div>
+    </form>
+    <form method="post" class="inline-form"
+        action="{{ url_for('admin.archive_class' if school_class.is_active else 'admin.reactivate_class', class_id=school_class.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="secondary-button">{{ 'Archive class' if school_class.is_active else 'Reactivate class' }}</button>
+    </form>
+</section>
+{% endblock %}

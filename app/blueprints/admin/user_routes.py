@@ -31,7 +31,9 @@ from app.blueprints.admin.routes import admin_bp
 from app.blueprints.auth.routes import EMAIL_REGEX
 from app.middleware.rbac import require_role
 from app.models.otp_event import OTPEvent
+from app.models.school_class import SchoolClass
 from app.models.user import Role, User
+from app.services import enrolment_service
 from app.services.audit_service import log_action
 from app.services.otp_service import generate_otp, verify_otp
 
@@ -118,11 +120,41 @@ def _change_phone_context(new_phone):
     return CHANGE_PHONE_CONTEXT_PREFIX + digest[:32]
 
 
+def _active_classes():
+    return SchoolClass.query.filter_by(is_active=True).order_by(
+        SchoolClass.academic_year.desc(), SchoolClass.name, SchoolClass.stream).all()
+
+
 def _render_user_form(user, *, values, errors, otp_pending=False):
+    if hasattr(values, "getlist") and "role_id" in values:  # a submitted form: keep its choices
+        selected = {int(v) for v in values.getlist("class_ids") if str(v).isdigit()}
+    else:
+        selected = set(enrolment_service.current_class_ids_for_teacher(user.id)) if user is not None else set()
     return render_template(
         "admin/users/form.html", roles=_staff_roles(), user=user, values=values, errors=errors,
-        otp_pending=otp_pending,
+        otp_pending=otp_pending, classes=_active_classes(), selected_class_ids=selected,
     )
+
+
+def _sync_class_assignments(user, wanted_classes):
+    """Stage assignment changes so the teacher holds exactly `wanted_classes`. Returns
+    (added, removed) class lists; the caller's audit row commits them."""
+    current_ids = set(enrolment_service.current_class_ids_for_teacher(user.id))
+    wanted_ids = {c.id for c in wanted_classes}
+    added = [c for c in wanted_classes if c.id not in current_ids]
+    removed = [db.session.get(SchoolClass, cid) for cid in current_ids - wanted_ids]
+    for school_class in added:
+        enrolment_service.assign_teacher(current_user, school_class, user, audit=False)
+    for school_class in removed:
+        enrolment_service.unassign_teacher(current_user, school_class, user, audit=False)
+    return added, removed
+
+
+def _audit_assignment_changes(user, added, removed):
+    for school_class in added:
+        _audit("class_teacher_assigned", user.id, f"Assigned to class_id={school_class.id}")
+    for school_class in removed:
+        _audit("class_teacher_unassigned", user.id, f"Unassigned from class_id={school_class.id}")
 
 
 def _start_phone_change(user, context):
@@ -164,7 +196,6 @@ def _validate_profile(form, *, require_email):
     data = {
         "full_name": _clean(form.get("full_name")),
         "phone_number": _clean(form.get("phone_number")),
-        "assigned_class": _clean(form.get("assigned_class")) or None,
     }
     errors = {}
     if require_email:
@@ -177,8 +208,15 @@ def _validate_profile(form, *, require_email):
         errors["full_name"] = "Enter the person's full name (up to 120 characters)."
     if not E164_PHONE_PATTERN.fullmatch(data["phone_number"]):
         errors["phone_number"] = "Enter the phone number in international format, e.g. +254712345678."
-    if data["assigned_class"] and len(data["assigned_class"]) > 50:
-        errors["assigned_class"] = "Class names are up to 50 characters."
+    # Class assignments (#48): only active classes, and only for teachers.
+    class_ids = [str(v).strip() for v in (form.getlist("class_ids") if hasattr(form, "getlist") else [])]
+    classes = []
+    for class_id in dict.fromkeys(class_ids):
+        school_class = db.session.get(SchoolClass, int(class_id)) if class_id.isdigit() else None
+        if school_class is None or not school_class.is_active:
+            errors["class_ids"] = "Choose active classes only."
+            break
+        classes.append(school_class)
 
     role = None
     role_id = form.get("role_id")
@@ -189,8 +227,7 @@ def _validate_profile(form, *, require_email):
     if role is None or role.name in NON_STAFF_ROLES:
         errors["role_id"] = "Choose a staff role."
     data["role"] = role
-    if role is not None and role.name != "teacher":
-        data["assigned_class"] = None  # only teachers have a class
+    data["classes"] = classes if role is not None and role.name == "teacher" else []  # only teachers
     return data, errors
 
 
@@ -206,14 +243,17 @@ def list_users():
         .order_by(Role.name, User.full_name)
         .all()
     )
-    return render_template("admin/users/list.html", users=users)
+    class_labels = {}
+    for assignment in enrolment_service.ClassTeacherAssignment.query.filter_by(ended_at=None):
+        class_labels.setdefault(assignment.user_id, []).append(assignment.school_class.label)
+    return render_template("admin/users/list.html", users=users, class_labels=class_labels)
 
 
 @admin_bp.route("/users/new")
 @login_required
 @require_role("administrator")
 def new_user_form():
-    return render_template("admin/users/form.html", roles=_staff_roles(), user=None, values={}, errors={})
+    return _render_user_form(None, values={}, errors={})
 
 
 @admin_bp.route("/users", methods=["POST"])
@@ -222,16 +262,13 @@ def new_user_form():
 def create_user():
     data, errors = _validate_profile(request.form, require_email=True)
     if errors:
-        return render_template(
-            "admin/users/form.html", roles=_staff_roles(), user=None, values=request.form, errors=errors
-        ), 400
+        return _render_user_form(None, values=request.form, errors=errors), 400
 
     role = data["role"]
     user = User(
         full_name=data["full_name"],
         email=data["email"],
         phone_number=data["phone_number"],
-        assigned_class=data["assigned_class"],
         # A random password nobody is told: the person sets their own with the SMS code.
         password_hash=generate_password_hash(secrets.token_urlsafe(32)),
         role_id=role.id,
@@ -239,8 +276,11 @@ def create_user():
         is_active=role.name != "administrator",
     )
     db.session.add(user)
-    db.session.commit()
+    db.session.flush()
+    added, _ = _sync_class_assignments(user, data["classes"])
+    # log_action() commits the account and its class assignments together with this row.
     _audit("create_user", user.id, f"Created {role.name} account")
+    _audit_assignment_changes(user, added, [])
 
     if role.name == "administrator":
         return _start_admin_grant(user)
@@ -319,7 +359,7 @@ def edit_user(user_id):
     user = _get_user_or_404(user_id)
     _refuse_self(user, "edit")
     if request.method == "GET":
-        return render_template("admin/users/form.html", roles=_staff_roles(), user=user, values={}, errors={})
+        return _render_user_form(user, values={}, errors={})
 
     data, errors = _validate_profile(request.form, require_email=False)
     role = data["role"]
@@ -349,13 +389,18 @@ def edit_user(user_id):
             ), 400
 
     changed = []
-    for field in ("full_name", "phone_number", "assigned_class"):
+    for field in ("full_name", "phone_number"):
         if getattr(user, field) != data[field]:
             setattr(user, field, data[field])
             changed.append(field)
     if user.role_id != role.id:
         user.role_id = role.id
         changed.append("role")
+    # A teacher's classes decide which records they see (#48). Leaving the teacher role
+    # ends every assignment, because data["classes"] is empty for other roles.
+    added, removed = _sync_class_assignments(user, data["classes"])
+    if added or removed:
+        changed.append("class assignments")
     if not changed:
         flash("No changes to save.", "info")
         return redirect(url_for("admin.list_users"))
@@ -364,6 +409,7 @@ def edit_user(user_id):
     if phone_changed:
         _audit("phone_changed", user.id, "Phone number changed after OTP verification")
     _audit("user_updated", user.id, f"Updated fields: {', '.join(changed)}")
+    _audit_assignment_changes(user, added, removed)
     flash(f"Saved changes to {user.full_name}.", "success")
     return redirect(url_for("admin.list_users"))
 

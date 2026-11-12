@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Classes | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Classes</h1>
+    <p class="lead">Teachers see the records of children currently enrolled in their active classes. Archived classes
+        give teachers no access. Every change is recorded in the audit log.</p>
+</section>
+
+<section class="panel" aria-labelledby="new-class-title">
+    <h2 id="new-class-title">New class</h2>
+    <form method="post" action="{{ url_for('admin.create_class') }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="name">
+            <span class="field-label">Name</span>
+            <input id="name" name="name" required maxlength="50" placeholder="Grade 6" autocomplete="off">
+        </label>
+        <label class="field-group" for="stream">
+            <span class="field-label">Stream (optional)</span>
+            <input id="stream" name="stream" maxlength="10" placeholder="A" autocomplete="off">
+        </label>
+        <label class="field-group" for="academic_year">
+            <span class="field-label">Academic year</span>
+            <input id="academic_year" name="academic_year" type="number" required min="2000" max="2100"
+                value="{{ default_year }}">
+        </label>
+        <div class="form-actions">
+            <button type="submit" class="primary-button">Create class</button>
+        </div>
+    </form>
+</section>
+
+<section class="panel" aria-labelledby="classes-title">
+    <h2 id="classes-title">{{ classes | length }} class{{ '' if classes | length == 1 else 'es' }}</h2>
+    {% if classes %}
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="classes-title">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th scope="col">Class</th>
+                    <th scope="col">Year</th>
+                    <th scope="col">Enrolled</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for school_class in classes %}
+                <tr>
+                    <td>{{ school_class.label }}</td>
+                    <td class="mono">{{ school_class.academic_year }}</td>
+                    <td class="mono">{{ counts.get(school_class.id, 0) }}</td>
+                    <td>{% if school_class.is_active %}<span class="status-pill status-approved">Active</span>
+                        {% else %}<span class="status-pill status-dismissed">Archived</span>{% endif %}</td>
+                    <td class="table-actions"><a class="secondary-button"
+                            href="{{ url_for('admin.class_detail', class_id=school_class.id) }}">Manage</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">No classes yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

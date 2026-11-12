@@ -57,7 +57,6 @@ def validate_record_updates(payload):
         if field_name in {
             "full_name",
             "guardian_contact",
-            "class_assigned",
             "medical_notes",
         }:
             validated[field_name] = _validate_text(

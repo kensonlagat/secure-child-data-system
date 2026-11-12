@@ -42,10 +42,15 @@
             <span class="field-help">Used for school records when parent notifications are needed.</span>
         </label>
 
-        <label class="field-group">
-            <span class="field-label">Class assigned</span>
-            <input type="text" name="class_assigned" placeholder="School mode only">
-            <span class="field-help">Visible for school records and teachers.</span>
+        <label class="field-group" for="class_id">
+            <span class="field-label">Class</span>
+            <select id="class_id" name="class_id">
+                <option value="">Not enrolled yet</option>
+                {% for school_class in classes %}
+                <option value="{{ school_class.id }}">{{ school_class.label }} ({{ school_class.academic_year }})</option>
+                {% endfor %}
+            </select>
+            <span class="field-help">The child is enrolled in this class when the record is created. Its teachers can then see the record.</span>
         </label>
         {% else %}
         <label class="field-group">
