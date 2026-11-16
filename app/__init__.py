@@ -175,6 +175,7 @@ def create_app(config_name="development"):
     from app.blueprints.anomaly.routes import anomaly_bp
     from app.blueprints.consent.routes import consent_bp
     from app.blueprints.attendance.routes import attendance_bp
+    from app.blueprints.pickup.routes import pickup_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
@@ -185,6 +186,7 @@ def create_app(config_name="development"):
     app.register_blueprint(anomaly_bp, url_prefix="/anomaly")
     app.register_blueprint(consent_bp, url_prefix="/consent")
     app.register_blueprint(attendance_bp, url_prefix="/attendance")
+    app.register_blueprint(pickup_bp, url_prefix="/pickup")
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
     from app.cli import register_cli_commands
