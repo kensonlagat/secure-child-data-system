@@ -20,8 +20,10 @@ from app.models.child_record import ChildRecord
 from app.models.audit_log import AuditLogEntry
 from app.models.legal_status_change_request import LegalStatusChangeRequest
 from app.models.otp_event import OTPEvent
+from app.models.school_class import SchoolClass
 from app.models.user import User
 from app.services.audit_service import log_action
+from app.services.enrolment_service import EnrolmentError, enrol_child
 from app.services.otp_service import generate_otp, verify_otp
 from sqlalchemy import func
 
@@ -149,8 +151,18 @@ def dismiss_anomaly_alert(alert_id):
 @require_role("administrator")
 def create_record_form():
     """Render the record creation form for administrators."""
+    return _render_create_record_form()
+
+
+def _active_classes():
+    return SchoolClass.query.filter_by(is_active=True).order_by(SchoolClass.name, SchoolClass.stream).all()
+
+
+def _render_create_record_form(error=None):
     return render_template(
         "admin/create_record.html",
+        error=error,
+        classes=_active_classes(),
         new_anomaly_alert_count=_new_anomaly_alert_count(),
     )
 
@@ -173,31 +185,41 @@ def create_record():
         }
         if request.is_json:
             return jsonify(error_payload), 400
-        return render_template(
-            "admin/create_record.html",
-            error=error_payload["error"],
-            new_anomaly_alert_count=_new_anomaly_alert_count(),
-        ), 400
+        return _render_create_record_form(error_payload["error"]), 400
 
     try:
         parsed_date_of_birth = date.fromisoformat(date_of_birth)
     except (TypeError, ValueError):
         if request.is_json:
             return jsonify({"error": "date_of_birth must be a valid ISO format date string."}), 400
-        return render_template(
-            "admin/create_record.html",
-            error="date_of_birth must be a valid ISO format date string.",
-            new_anomaly_alert_count=_new_anomaly_alert_count(),
-        ), 400
+        return _render_create_record_form("date_of_birth must be a valid ISO format date string."), 400
 
     record = ChildRecord()
     record.full_name = full_name
     record.date_of_birth = parsed_date_of_birth
     record.institution_mode = institution_mode
 
+    school_class = None
     if institution_mode == "school":
         record.guardian_contact = payload.get("guardian_contact")
-        record.class_assigned = payload.get("class_assigned")
+        # #48: the class comes only from the class link. The old free-text field is refused
+        # loudly rather than silently ignored.
+        if payload.get("class_assigned"):
+            message = "class_assigned is no longer accepted. Choose a class with class_id."
+            if request.is_json:
+                return jsonify({"error": message}), 400
+            return _render_create_record_form(message), 400
+        class_id = payload.get("class_id")
+        if class_id not in (None, ""):
+            try:
+                school_class = db.session.get(SchoolClass, int(class_id))
+            except (TypeError, ValueError):
+                school_class = None
+            if school_class is None or not school_class.is_active:
+                message = "class_id must reference an active class."
+                if request.is_json:
+                    return jsonify({"error": message}), 400
+                return _render_create_record_form(message), 400
     else:
         # Legal status changes must use the dedicated two-person approval workflow,
         # so enrollment always starts with a fixed safe default instead of caller input.
@@ -210,34 +232,46 @@ def create_record():
             except (TypeError, ValueError):
                 if request.is_json:
                     return jsonify({"error": "caseload_worker_id must be an integer."}), 400
-                return render_template(
-                    "admin/create_record.html",
-                    error="caseload_worker_id must be an integer.",
-                    new_anomaly_alert_count=_new_anomaly_alert_count(),
-                ), 400
+                return _render_create_record_form("caseload_worker_id must be an integer."), 400
 
             caseload_worker = db.session.get(User, caseload_worker_id)
             if caseload_worker is None or getattr(caseload_worker.role, "name", None) != "social_worker":
                 if request.is_json:
                     return jsonify({"error": "caseload_worker_id must reference an existing social_worker."}), 400
-                return render_template(
-                    "admin/create_record.html",
-                    error="caseload_worker_id must reference an existing social_worker.",
-                    new_anomaly_alert_count=_new_anomaly_alert_count(),
-                ), 400
+                return _render_create_record_form("caseload_worker_id must reference an existing social_worker."), 400
 
             record.caseload_worker_id = caseload_worker_id
 
     db.session.add(record)
-    db.session.commit()
-
-    log_action(
-        user_id=current_user.id,
-        action="create_record",
-        target_record_type="child_record",
-        target_record_id=record.id,
-        details=f"Created child record with institution_mode={institution_mode}",
-    )
+    try:
+        db.session.flush()
+        if school_class is not None:
+            # Same transaction as the insert (#48): if the enrolment fails, so does the record.
+            enrol_child(current_user, record, school_class, audit=False)
+        # log_action() commits the record, its enrolment and this row together.
+        log_action(
+            user_id=current_user.id,
+            action="create_record",
+            target_record_type="child_record",
+            target_record_id=record.id,
+            details=f"Created child record with institution_mode={institution_mode}",
+        )
+    except EnrolmentError as error:
+        db.session.rollback()
+        if request.is_json:
+            return jsonify({"error": str(error)}), 400
+        return _render_create_record_form(str(error)), 400
+    except Exception:
+        db.session.rollback()
+        raise
+    if school_class is not None:
+        log_action(
+            user_id=current_user.id,
+            action="child_enrolled",
+            target_record_type="child_record",
+            target_record_id=record.id,
+            details=f"Enrolled in class_id={school_class.id} at creation",
+        )
 
     if request.is_json:
         return jsonify({"id": record.id, "institution_mode": record.institution_mode}), 201
@@ -460,3 +494,4 @@ def confirm_safeguarding_lead_change(user_id):
 
 # User management routes live in their own module and register on admin_bp.
 from app.blueprints.admin import user_routes  # noqa: E402,F401
+from app.blueprints.admin import class_routes  # noqa: E402,F401

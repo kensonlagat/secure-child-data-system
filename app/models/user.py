@@ -38,7 +38,8 @@ class User(db.Model, UserMixin):
     # OTP and SMS notifications are delivered here via Africa's Talking
 
     assigned_class = db.Column(db.String(50), nullable=True)
-    # Only meaningful for users with the teacher role; identifies which class they teach.
+    # Legacy free text (#48): no longer read for scoping. Teachers' classes come from
+    # class_teacher_assignments. Kept read-only for one release, then dropped.
 
     password_hash = db.Column(db.String(255), nullable=False)
 

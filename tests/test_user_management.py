@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app, db
+from class_helpers import get_class, put_in_class
 from app.config import BaseConfig
 from app.models.audit_log import AuditLogEntry
 from app.models.child_record import ChildRecord
@@ -47,13 +48,19 @@ def app(monkeypatch):
             ("teacher", "teacher@example.com", "teacher", "+254700000002"),
         ):
             user = User(email=email, full_name=f"Test {key}", phone_number=phone,
-                        assigned_class="Grade 6A" if role == "teacher" else None,
                         password_hash=generate_password_hash(PASSWORD), role_id=roles[role].id, is_active=True)
             db.session.add(user)
             db.session.flush()
             ids[key] = user.id
-        db.session.add(ChildRecord(full_name="Child", date_of_birth=date(2014, 1, 1),
-                                   institution_mode="school", class_assigned="Grade 6A"))
+        child = ChildRecord(full_name="Child", date_of_birth=date(2014, 1, 1), institution_mode="school")
+        db.session.add(child)
+        db.session.flush()
+        teacher = db.session.get(User, ids["teacher"])
+        ids["classes"] = {
+            "6A": put_in_class("Grade 6A", children=[child], teachers=[teacher]).id,
+            "5B": get_class("Grade 5B").id,
+            "7C": get_class("Grade 7C").id,
+        }
         db.session.commit()
         application.config["IDS"] = ids
     yield application
@@ -72,6 +79,13 @@ def audit(app, action):
         return AuditLogEntry.query.filter_by(action=action).all()
 
 
+def class_ids_of(app, user_id):
+    from app.services.enrolment_service import current_class_ids_for_teacher
+
+    with app.app_context():
+        return sorted(current_class_ids_for_teacher(user_id))
+
+
 def get_user(app, email):
     with app.app_context():
         user = User.query.filter_by(email=email).first()
@@ -82,7 +96,7 @@ def get_user(app, email):
 
 def new_staff(app, role="teacher", **overrides):
     data = {"full_name": "New Person", "email": "new@example.com", "phone_number": "+254711111111",
-            "role_id": str(app.config["IDS"]["roles"][role]), "assigned_class": "Grade 5B"}
+            "role_id": str(app.config["IDS"]["roles"][role]), "class_ids": str(app.config["IDS"]["classes"]["5B"])}
     data.update(overrides)
     return data
 
@@ -99,7 +113,7 @@ def test_new_staff_get_an_sms_code_and_set_their_own_password(app, sms, monkeypa
     assert response.status_code == 302
     created = get_user(app, "new@example.com")
     assert created.is_active is True
-    assert created.assigned_class == "Grade 5B"
+    assert class_ids_of(app, created.id) == [app.config["IDS"]["classes"]["5B"]]
     assert sms[-1][0] == "+254711111111"  # code went to the new person, not the admin
     assert len(audit(app, "create_user")) == 1
     assert len(audit(app, "account_setup_code_sent")) == 1
@@ -159,10 +173,10 @@ def test_parent_accounts_cannot_be_created_here(app, sms):
     assert get_user(app, "new@example.com") is None
 
 
-def test_assigned_class_is_cleared_for_non_teachers(app, sms):
+def test_class_assignments_are_ignored_for_non_teachers(app, sms):
     admin = sign_in(app.test_client())
     admin.post("/admin/users", data=new_staff(app, role="social_worker"))
-    assert get_user(app, "new@example.com").assigned_class is None
+    assert class_ids_of(app, get_user(app, "new@example.com").id) == []
 
 
 # --- New administrators need the acting admin's OTP ------------------------------
@@ -302,12 +316,12 @@ def test_edit_is_audited_with_field_names_only(app, sms):
     teacher_id = app.config["IDS"]["teacher"]
 
     form = {"full_name": "Renamed", "phone_number": "+254722222222",
-            "role_id": str(app.config["IDS"]["roles"]["teacher"]), "assigned_class": "Grade 7C"}
+            "role_id": str(app.config["IDS"]["roles"]["teacher"]), "class_ids": str(app.config["IDS"]["classes"]["7C"])}
     admin.post(f"/admin/users/{teacher_id}/edit", data=form)  # phone change: sends a code first
     admin.post(f"/admin/users/{teacher_id}/edit", data={**form, "otp_code": sms[-1][1]})
 
     entry = audit(app, "user_updated")[0]
-    assert entry.details == "Updated fields: full_name, phone_number, assigned_class"
+    assert entry.details == "Updated fields: full_name, phone_number, class assignments"
     assert "+254722222222" not in entry.details
 
 
@@ -390,7 +404,7 @@ NEW_PHONE = "+254733333333"
 
 def teacher_form(app, **overrides):
     data = {"full_name": "Test teacher", "phone_number": NEW_PHONE,
-            "role_id": str(app.config["IDS"]["roles"]["teacher"]), "assigned_class": "Grade 6A"}
+            "role_id": str(app.config["IDS"]["roles"]["teacher"]), "class_ids": str(app.config["IDS"]["classes"]["6A"])}
     data.update(overrides)
     return data
 

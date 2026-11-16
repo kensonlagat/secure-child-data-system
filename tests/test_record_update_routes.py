@@ -13,6 +13,7 @@ from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash
 
 from app import create_app, db
+from class_helpers import put_in_class
 from app.blueprints.school_mode import routes as school_routes
 from app.config import BaseConfig
 from app.models.child_record import ChildRecord
@@ -44,10 +45,11 @@ def app(monkeypatch):
             full_name="Test Child",
             date_of_birth=date(2014, 1, 15),
             institution_mode="school",
-            class_assigned="Grade 6A",
             guardian_contact="+254700111223",
         )
         db.session.add_all([admin, record])
+        db.session.flush()
+        put_in_class("Grade 6A", children=[record])
         db.session.commit()
         application.config["TEST_ADMIN_ID"] = admin.id
         application.config["TEST_RECORD_ID"] = record.id

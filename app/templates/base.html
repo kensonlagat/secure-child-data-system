@@ -80,6 +80,9 @@
                 {{ nav_link('school_mode.records', 'School records', on_school) }}
                 {% endif %}
                 {{ nav_link('admin.create_record_form', 'Create record', current_endpoint == 'admin.create_record_form') }}
+                {% if active_portal != 'childrens_home' %}
+                {{ nav_link('admin.list_classes', 'Classes', current_endpoint in ['admin.list_classes', 'admin.class_detail']) }}
+                {% endif %}
                 {{ nav_link('admin.list_users', 'Users', current_endpoint in ['admin.list_users', 'admin.new_user_form', 'admin.edit_user', 'admin.grant_admin']) }}
                 {{ nav_link('admin.anomaly_alerts', 'Anomaly alerts', current_endpoint == 'admin.anomaly_alerts', new_anomaly_alert_count or 0) }}
                 {% elif role_name == 'teacher' %}

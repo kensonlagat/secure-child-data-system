@@ -81,12 +81,20 @@
             {{ error('role_id') }}
         </label>
 
-        <label class="field-group" for="assigned_class">
-            <span class="field-label">Class (teachers only)</span>
-            <input id="assigned_class" name="assigned_class" maxlength="50" autocomplete="off"
-                value="{{ value('assigned_class', (user.assigned_class or '') if editing else '') }}">
-            {{ error('assigned_class') }}
-        </label>
+        <fieldset class="field-group" {% if errors.get('class_ids') %}aria-describedby="class_ids-error" {% endif %}>
+            <legend class="field-label">Classes (teachers only)</legend>
+            {% for school_class in classes %}
+            <label class="checkbox-row">
+                <input type="checkbox" name="class_ids" value="{{ school_class.id }}"
+                    {% if school_class.id in selected_class_ids %}checked{% endif %}>
+                {{ school_class.label }} ({{ school_class.academic_year }})
+            </label>
+            {% else %}
+            <span class="field-help">No active classes yet. Create them under Classes.</span>
+            {% endfor %}
+            <span class="field-help">A teacher sees the records of children enrolled in these classes. Ignored for other roles.</span>
+            {{ error('class_ids') }}
+        </fieldset>
 
         {% if otp_pending %}
         <label class="field-group" for="otp_code">

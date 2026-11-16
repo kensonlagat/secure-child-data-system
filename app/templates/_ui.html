@@ -23,7 +23,7 @@
 {# Columns that belong to only one mode (see the mode-specific fields in child_record.py).
    Pages hide the other mode's columns. Display only: access_service.py decides what is sent. #}
 {% set MODE_ONLY_FIELDS = {
-'school': ['guardian_contact', 'class_assigned'],
+'school': ['guardian_contact', 'class_label'],
 'childrens_home': ['legal_status', 'caseload_worker_id'],
 } %}
 
@@ -52,7 +52,7 @@
 {%- endmacro %}
 
 {% macro field_label(field_name) -%}
-{{ field_name.replace('_', ' ') | capitalize }}
+{{ {'class_label': 'Class'}.get(field_name, field_name.replace('_', ' ') | capitalize) }}
 {%- endmacro %}
 
 {% macro lock(field_name) -%}
