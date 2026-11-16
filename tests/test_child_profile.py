@@ -216,7 +216,8 @@ def test_tampered_profile_value_reads_as_unreadable_without_a_500(app):
     with app.app_context():
         stored = bytearray(db.session.execute(text("SELECT allergies FROM child_records WHERE id = :id"),
                                               {"id": app.config["SCHOOL"]}).scalar())
-        stored[-3] = ord("A") if stored[-3] != ord("A") else ord("B")
+        middle = len(stored) // 2  # a fully significant base64 character, never padding bits
+        stored[middle] = ord("A") if stored[middle] != ord("A") else ord("B")
         db.session.execute(text("UPDATE child_records SET allergies = :v WHERE id = :id"),
                            {"v": bytes(stored), "id": app.config["SCHOOL"]})
         db.session.commit()
