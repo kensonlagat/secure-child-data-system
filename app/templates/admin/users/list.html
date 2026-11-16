@@ -46,7 +46,7 @@
                     <td>{{ user.full_name }}{% if is_self %} <span class="badge">You</span>{% endif %}</td>
                     <td class="mono">{{ user.email }}</td>
                     <td>{{ ui.ROLE_LABELS.get(user.role.name, user.role.name) }}</td>
-                    <td>{{ user.assigned_class or '' }}</td>
+                    <td>{{ class_labels.get(user.id, []) | join(', ') }}</td>
                     <td>
                         {% if user.is_active %}<span class="status-pill status-approved">Active</span>
                         {% elif user.role.name == 'administrator' %}<span class="status-pill status-pending_otp">Pending or inactive</span>

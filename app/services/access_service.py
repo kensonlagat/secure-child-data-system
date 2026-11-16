@@ -6,9 +6,15 @@ default: missing assignments, unknown roles, or incomplete user context return
 an empty query or empty field list rather than broadening access.
 """
 
-from sqlalchemy import false
+from sqlalchemy import false, select
 
 from app.models.child_record import ChildRecord
+from app.models.school_class import ClassTeacherAssignment, Enrolment, SchoolClass
+
+# Derived, read-only field: the label of the child's current class (#48). It replaces the
+# legacy free-text `class_assigned` column, which is neither visible nor writable any more.
+CLASS_LABEL_FIELD = "class_label"
+LEGACY_COLUMNS = {"class_assigned"}
 
 
 def _empty_records_query():
@@ -32,12 +38,28 @@ def get_accessible_records(user):
         return base_query
 
     if role_name == "teacher":
-        assigned_class = getattr(user, "assigned_class", None)
-        if not assigned_class:
+        user_id = getattr(user, "id", None)
+        if user_id is None:
             return _empty_records_query()
+        # Classes this teacher currently holds, archived classes excluded (#48).
+        teacher_class_ids = (
+            select(ClassTeacherAssignment.class_id)
+            .join(SchoolClass, SchoolClass.id == ClassTeacherAssignment.class_id)
+            .where(
+                ClassTeacherAssignment.user_id == user_id,
+                ClassTeacherAssignment.ended_at.is_(None),
+                SchoolClass.is_active.is_(True),
+            )
+        )
+        # Children whose *current* enrolment is in one of those classes. No assignment
+        # means an empty subquery, so no records (fail closed).
+        enrolled_child_ids = select(Enrolment.child_record_id).where(
+            Enrolment.ended_on.is_(None),
+            Enrolment.class_id.in_(teacher_class_ids),
+        )
         return base_query.filter(
             ChildRecord.institution_mode == "school",
-            ChildRecord.class_assigned == assigned_class,
+            ChildRecord.id.in_(enrolled_child_ids),
         )
 
     if role_name == "school_nurse":
@@ -90,14 +112,15 @@ def get_visible_fields(user):
     """Return the ChildRecord fields visible to the supplied user's role."""
     role_name = _get_role_name(user)
     if role_name == "administrator":
-        return [column.name for column in ChildRecord.__table__.columns]
+        columns = [column.name for column in ChildRecord.__table__.columns if column.name not in LEGACY_COLUMNS]
+        return columns + [CLASS_LABEL_FIELD]
 
     if role_name == "teacher":
         return [
             "id",
             "full_name",
             "date_of_birth",
-            "class_assigned",
+            CLASS_LABEL_FIELD,
             "guardian_contact",
         ]
 
@@ -126,12 +149,12 @@ def get_writable_fields(user, record):
     if role_name == "administrator":
         # This is an allowlist: future columns are non-writable by default.
         # Excluded fields are institution_mode (role scopes), legal_status (two-person
-        # workflow), is_deleted/deleted_at (OTP-gated deletion), id, and timestamps.
+        # workflow), is_deleted/deleted_at (OTP-gated deletion), id, and timestamps, and
+        # class_assigned (#48: class changes go only through the audited enrolment actions).
         return [
             "full_name",
             "date_of_birth",
             "guardian_contact",
-            "class_assigned",
             "medical_notes",
             "caseload_worker_id",
         ]

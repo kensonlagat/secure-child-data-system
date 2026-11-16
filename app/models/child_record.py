@@ -33,6 +33,8 @@ class ChildRecord(db.Model):
 
     # --- School Mode fields ---
     guardian_contact = db.Column(EncryptedType(db.String, _encryption_key, AesEngine, "pkcs5"))
+    # Legacy free text (#48): no longer read for scoping or writable. Kept read-only for one
+    # release, then dropped. The current class comes from `enrolments` (see class_label).
     class_assigned = db.Column(db.String(50))
 
     # --- Children's Home Mode fields ---
@@ -47,6 +49,15 @@ class ChildRecord(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def class_label(self):
+        """Label of the child's current class (#48), or None when not enrolled. Read-only:
+        enrolment changes go through app/services/enrolment_service.py."""
+        from app.models.school_class import Enrolment
+
+        enrolment = Enrolment.query.filter_by(child_record_id=self.id, ended_on=None).first()
+        return enrolment.school_class.label if enrolment else None
 
     def __repr__(self):
         return f"<ChildRecord id={self.id} mode={self.institution_mode}>"

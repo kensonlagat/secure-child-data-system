@@ -9,6 +9,7 @@ from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash
 
 from app import create_app, db
+from class_helpers import put_in_class
 from app.config import BaseConfig
 from app.models.audit_log import AuditLogEntry
 from app.models.child_record import ChildRecord
@@ -28,15 +29,17 @@ def app(monkeypatch):
         db.session.add_all([teacher_role, worker_role])
         db.session.flush()
         db.session.add_all([
-            User(email="teacher@example.com", full_name="T", phone_number="+254700000001", assigned_class="Grade 6A",
+            User(email="teacher@example.com", full_name="T", phone_number="+254700000001",
                  password_hash=generate_password_hash(PASSWORD), role_id=teacher_role.id),
             User(email="worker@example.com", full_name="W", phone_number="+254700000002",
                  password_hash=generate_password_hash(PASSWORD), role_id=worker_role.id),
         ])
-        other_class = [ChildRecord(full_name=f"Child {i}", date_of_birth=date(2014, 1, 1), institution_mode="school",
-                                   class_assigned="Grade 7C") for i in range(2)]
+        other_class = [ChildRecord(full_name=f"Child {i}", date_of_birth=date(2014, 1, 1), institution_mode="school")
+                       for i in range(2)]
         home = ChildRecord(full_name="Home", date_of_birth=date(2012, 1, 1), institution_mode="childrens_home")
         db.session.add_all(other_class + [home])
+        db.session.flush()
+        put_in_class("Grade 7C", children=other_class)
         db.session.commit()
         application.config["FORBIDDEN_IDS"] = [r.id for r in other_class]
         application.config["HOME_ID"] = home.id

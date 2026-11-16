@@ -125,3 +125,16 @@ def test_the_real_credentials_file_is_git_ignored():
     app = create_app("testing")
     with app.app_context():
         assert cli._is_git_ignored(cli._credentials_file_path()) is True
+
+
+def test_seeded_teachers_get_a_class_assignment_not_free_text(app):
+    from app.services.enrolment_service import current_class_ids_for_teacher
+
+    seed(app, per_role=2)
+
+    with app.app_context():
+        teachers = User.query.join(Role).filter(Role.name == "teacher").all()
+        assert len(teachers) == 2
+        for teacher in teachers:
+            assert teacher.assigned_class is None
+            assert len(current_class_ids_for_teacher(teacher.id)) == 1

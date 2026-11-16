@@ -15,10 +15,12 @@ from werkzeug.security import generate_password_hash
 from app import db
 from app.models.anomaly_alert import AnomalyAlert
 from app.models.audit_log import AuditLogEntry
+from app.models.school_class import SchoolClass, split_class_label
 from app.models.user import Role, User
 from app.services.anomaly_scoring import score_recent_entries
 from app.services.anomaly_training import train_models_for_all_roles
 from app.services.audit_service import log_action
+from app.services.enrolment_service import assign_teacher
 from app.services.synthetic_audit_data import generate_synthetic_history
 from app.services.sms_service import SmsDeliveryError, send_sms
 
@@ -41,6 +43,7 @@ def _create_synthetic_user(role: Role, sequence_number: int, password: str) -> U
     """Create one synthetic user record for the requested role."""
     user = User()
     user.role_id = role.id
+    user.role = role
     user.phone_number = f"+254700{role.id:02d}{sequence_number:04d}"
     user.password_hash = generate_password_hash(password)
     user.is_active = True
@@ -51,7 +54,6 @@ def _create_synthetic_user(role: Role, sequence_number: int, password: str) -> U
     elif role.name == "teacher":
         user.full_name = f"Teacher Demo {sequence_number:02d}"
         user.email = f"synthetic.teacher.{sequence_number:02d}@example.com"
-        user.assigned_class = SYNTHETIC_USER_CLASSES[(sequence_number - 1) % len(SYNTHETIC_USER_CLASSES)]
     elif role.name == "legal_officer":
         user.full_name = f"Legal Officer Demo {sequence_number:02d}"
         user.email = f"synthetic.legal.{sequence_number:02d}@example.com"
@@ -268,6 +270,10 @@ def seed_synthetic_users_command(per_role: int):
             db.session.add(user)
             db.session.flush()
             created.append(user.email)
+            if role_name == "teacher":
+                # Teachers get a class through the class link (#48), not free text.
+                label = SYNTHETIC_USER_CLASSES[(sequence_number - 1) % len(SYNTHETIC_USER_CLASSES)]
+                assign_teacher(None, _synthetic_class(label), user, audit=False)
             click.echo(f"Created {role_name} user_id={user.id} email={user.email}")
 
     # log_action() commits the accounts together with this row.
@@ -311,6 +317,18 @@ def _append_credentials(path: str, emails, password: str) -> None:
     lines += [f"- `{email}` / `{password}`" for email in emails]
     with open(path, "a", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
+
+
+def _synthetic_class(label):
+    """The active class for this label in the current academic year, created if missing."""
+    name, stream = split_class_label(label)
+    year = datetime.now().year
+    school_class = SchoolClass.query.filter_by(name=name, stream=stream, academic_year=year).first()
+    if school_class is None:
+        school_class = SchoolClass(name=name, stream=stream, academic_year=year, is_active=True)
+        db.session.add(school_class)
+        db.session.flush()
+    return school_class
 
 
 @click.command("train-anomaly-models")
