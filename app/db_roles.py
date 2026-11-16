@@ -23,7 +23,7 @@ ROLE_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 AUDIT_TABLE = "audit_log_entries"
 # Append-only tables: the app role may read and insert, never update (and nothing is ever
 # deletable). Every future append-only table must be added here when it is created.
-APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records")
+APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records", "attendance_corrections", "absence_alerts")
 MIGRATION_TABLE = "alembic_version"
 PURGE_FUNCTION = "purge_synthetic_audit_entries()"
 

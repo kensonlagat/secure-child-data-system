@@ -11,6 +11,7 @@ from app.models.otp_event import OTPEvent
 from app.models.legal_status_change_request import LegalStatusChangeRequest
 from app.models.school_class import ClassTeacherAssignment, Enrolment, SchoolClass
 from app.models.consent import ConsentRecord
+from app.models.attendance import AbsenceAlert, AttendanceCorrection, AttendanceMark, AttendanceRegister
 
 __all__ = [
 	"User",
@@ -24,4 +25,8 @@ __all__ = [
 	"ClassTeacherAssignment",
 	"Enrolment",
 	"ConsentRecord",
+	"AttendanceRegister",
+	"AttendanceMark",
+	"AttendanceCorrection",
+	"AbsenceAlert",
 ]

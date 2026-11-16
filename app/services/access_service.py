@@ -207,3 +207,29 @@ def can_record_consent(user, record):
 def can_view_consent_details(user, record):
     """The guardian name and the full history are for the people who record consent."""
     return can_record_consent(user, record)
+
+
+# --- Attendance (#50) -------------------------------------------------------------------
+
+
+def can_mark_attendance(user, school_class):
+    """Teachers mark only active classes they currently hold; administrators may mark or
+    correct any class. Everyone else, fail closed."""
+    role_name = _get_role_name(user)
+    if school_class is None:
+        return False
+    if role_name == "administrator":
+        return True
+    if role_name == "teacher" and school_class.is_active:
+        return ClassTeacherAssignment.query.filter_by(
+            class_id=school_class.id, user_id=getattr(user, "id", None), ended_at=None
+        ).first() is not None
+    return False
+
+
+def can_read_attendance(user, school_class):
+    """Those who can mark, plus principals (read-only oversight of the school, per #50).
+    Clinical officers and children's-home roles get nothing."""
+    if can_mark_attendance(user, school_class):
+        return True
+    return school_class is not None and _get_role_name(user) == "principal"
