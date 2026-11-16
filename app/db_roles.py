@@ -21,6 +21,9 @@ from psycopg2 import errors, sql
 
 ROLE_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 AUDIT_TABLE = "audit_log_entries"
+# Append-only tables: the app role may read and insert, never update (and nothing is ever
+# deletable). Every future append-only table must be added here when it is created.
+APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records")
 MIGRATION_TABLE = "alembic_version"
 PURGE_FUNCTION = "purge_synthetic_audit_entries()"
 
@@ -103,7 +106,7 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
                         continue  # the app never touches migration state
                     privileges = (
                         sql.SQL("SELECT, INSERT")
-                        if table == AUDIT_TABLE
+                        if table in APPEND_ONLY_TABLES
                         else sql.SQL("SELECT, INSERT, UPDATE")
                     )
                     cursor.execute(
@@ -112,7 +115,7 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
                 cursor.execute(sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(app))
                 steps.append(
                     f"{app_role}: SELECT, INSERT, UPDATE on app tables; SELECT, INSERT only on "
-                    f"{AUDIT_TABLE}; nothing on {MIGRATION_TABLE}; no DELETE or TRUNCATE anywhere"
+                    f"{', '.join(APPEND_ONLY_TABLES)}; nothing on {MIGRATION_TABLE}; no DELETE or TRUNCATE anywhere"
                 )
 
                 # Tables and sequences the owner creates later get the same app-table grants.
@@ -209,6 +212,16 @@ def check_privileges(dsn):
         attempt("UPDATE on alembic_version", "UPDATE alembic_version SET version_num = version_num WHERE false", False)
         attempt("CREATE TABLE", "CREATE TABLE privilege_check_probe (id integer)", False)
         attempt("purge_synthetic_audit_entries()", "SELECT purge_synthetic_audit_entries()", True)
+        for table in APPEND_ONLY_TABLES:
+            if table == AUDIT_TABLE:
+                continue  # checked in detail above
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT to_regclass(%s) IS NOT NULL", (f"public.{table}",))
+                exists = cursor.fetchone()[0]
+                connection.rollback()
+            if exists:
+                has_privilege(f"UPDATE on {table} (append-only)", table, "UPDATE", False)
+                has_privilege(f"DELETE on {table} (append-only)", table, "DELETE", False)
     finally:
         connection.close()
     return ok, lines

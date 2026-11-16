@@ -173,6 +173,7 @@ def create_app(config_name="development"):
     from app.blueprints.audit.routes import audit_bp
     from app.blueprints.notifications.routes import notifications_bp
     from app.blueprints.anomaly.routes import anomaly_bp
+    from app.blueprints.consent.routes import consent_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
@@ -181,6 +182,7 @@ def create_app(config_name="development"):
     app.register_blueprint(audit_bp, url_prefix="/audit")
     app.register_blueprint(notifications_bp, url_prefix="/notifications")
     app.register_blueprint(anomaly_bp, url_prefix="/anomaly")
+    app.register_blueprint(consent_bp, url_prefix="/consent")
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
     from app.cli import register_cli_commands

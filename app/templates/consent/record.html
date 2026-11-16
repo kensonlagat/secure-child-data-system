@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Consent | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Consent <span class="mono">#{{ record.id }}</span></p>
+    <h1>Guardian consent</h1>
+    <p class="lead">Consent for photos, medical treatment and data sharing (Data Protection Act 2019). Withdrawing
+        consent adds an entry; nothing is ever deleted.</p>
+</section>
+
+<section class="panel" aria-labelledby="status-title">
+    <h2 id="status-title">Current status</h2>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="status-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Consent</th><th scope="col">Status</th><th scope="col">Since</th></tr></thead>
+            <tbody>
+                {% for consent_type in consent_types %}
+                {% set entry = status[consent_type] %}
+                <tr>
+                    <td>{{ type_labels[consent_type] }}</td>
+                    <td>{% if entry is none %}<span class="status-pill status-pending_otp">Not recorded</span>
+                        {% elif entry.status == 'given' %}<span class="status-pill status-approved">Given</span>
+                        {% else %}<span class="status-pill status-dismissed">Withdrawn</span>{% endif %}</td>
+                    <td class="mono">{{ entry.effective_date if entry else '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="muted">Not recorded means no consent: photos stay hidden until photo consent is given.</p>
+</section>
+
+{% if can_record %}
+<section class="panel" aria-labelledby="record-title">
+    <h2 id="record-title">Record consent</h2>
+    <form method="post" action="{{ url_for('consent.record_consent', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="consent_type">
+            <span class="field-label">Consent</span>
+            <select id="consent_type" name="consent_type" required>
+                {% for consent_type in consent_types %}<option value="{{ consent_type }}">{{ type_labels[consent_type] }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="field-group" for="status">
+            <span class="field-label">Decision</span>
+            <select id="status" name="status" required>
+                <option value="given">Given</option>
+                <option value="withdrawn">Withdrawn</option>
+            </select>
+        </label>
+        <label class="field-group" for="effective_date">
+            <span class="field-label">Date</span>
+            <input id="effective_date" name="effective_date" type="date" required>
+        </label>
+        <label class="field-group" for="guardian_name">
+            <span class="field-label">Guardian's name {{ ui.lock('full_name') }}</span>
+            <input id="guardian_name" name="guardian_name" required maxlength="120" autocomplete="off">
+        </label>
+        <div class="form-actions"><button type="submit" class="primary-button">Record</button></div>
+    </form>
+</section>
+{% endif %}
+
+{% if history is not none %}
+<section class="panel" aria-labelledby="history-title">
+    <h2 id="history-title">History</h2>
+    {% if history %}
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="history-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Consent</th><th scope="col">Decision</th><th scope="col">Date</th>
+                    <th scope="col">Guardian {{ ui.lock('full_name') }}</th><th scope="col">Recorded</th></tr></thead>
+            <tbody>
+                {% for entry in history %}
+                <tr>
+                    <td>{{ type_labels[entry.consent_type] }}</td>
+                    <td>{{ entry.status | capitalize }}</td>
+                    <td class="mono">{{ entry.effective_date }}</td>
+                    <td>{{ entry.guardian_name }}</td>
+                    <td class="mono">{{ entry.recorded_at.strftime('%Y-%m-%d %H:%M') }} by {{ entry.recorder.full_name }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">Nothing recorded yet.</p>
+    {% endif %}
+</section>
+{% endif %}
+{% endblock %}
