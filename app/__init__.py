@@ -102,6 +102,30 @@ def create_app(config_name="development"):
         )
         return redirect(request.referrer or url_for("auth.login"))
 
+    @app.after_request
+    def audit_unreadable_encrypted_values(response):
+        """One audit row per request in which an encrypted value failed its integrity check
+        (#88). Never changes the response, and never records the value."""
+        from flask import g
+
+        count = g.pop("unreadable_encrypted_values", 0)
+        if count:
+            try:
+                from flask_login import current_user
+                from app.services.audit_service import log_action
+
+                authenticated = current_user.is_authenticated
+                log_action(
+                    action="encrypted_value_unreadable",
+                    user_id=current_user.id if authenticated else None,
+                    attempted_identifier=None if authenticated else "anonymous",
+                    details=f"{count} encrypted value(s) failed the integrity check on {request.path}",
+                )
+            except Exception:
+                db.session.rollback()
+                app.logger.warning("Could not audit an unreadable encrypted value")
+        return response
+
     @app.context_processor
     def inject_active_portal():
         """Expose the portal whose pages a signed-in user sees (display only).

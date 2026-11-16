@@ -4,6 +4,7 @@ from datetime import date
 import re
 
 from app.models.child_record import ChildRecord
+from app.models.encryption import UNREADABLE
 from app.models.user import User
 
 E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
@@ -29,6 +30,10 @@ def _validate_text(field_name, value, required=False):
         raise RecordValidationError(field_name, f"{field_name} must be text.")
 
     value = value.strip()
+    if value == UNREADABLE:
+        # The placeholder shown for a value that failed its integrity check (#88) must never be
+        # saved: it would overwrite the stored ciphertext.
+        raise RecordValidationError(field_name, f"{field_name} cannot be set to that value.")
     if not value:
         if required:
             raise RecordValidationError(field_name, f"{field_name} cannot be blank.")
