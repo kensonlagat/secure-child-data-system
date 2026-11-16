@@ -127,3 +127,50 @@ def test_every_post_form_on_key_pages_carries_a_token(app):
         forms = re.findall(r"<form[^>]*method=\"post\"[^>]*>(.*?)</form>", html, flags=re.S | re.I)
         assert forms, path
         assert all('name="csrf_token"' in form for form in forms), path
+
+
+# --- #101: csrf_failure rows are bounded like access_denied ------------------------------
+
+
+def csrf_rows(app):
+    with app.app_context():
+        return AuditLogEntry.query.filter_by(action="csrf_failure").all()
+
+
+def test_repeated_csrf_failures_write_one_row(app):
+    client = signed_in(app)
+    for _ in range(25):
+        assert client.patch(f"/school/records/{app.config['RECORD']}",
+                            json={"guardian_contact": "+254722222222"}).status_code == 400
+    rows = csrf_rows(app)
+    assert len(rows) == 1
+    assert rows[0].details == "CSRF validation failed for endpoint school_mode.update_record"
+
+
+def test_cycling_record_ids_in_the_url_does_not_lift_the_bound(app):
+    client = signed_in(app)
+    for record_id in range(1, 40):
+        client.patch(f"/school/records/{record_id}", json={"guardian_contact": "+254722222222"})
+    assert len(csrf_rows(app)) == 1
+
+
+def test_per_user_cap_across_endpoints(app):
+    app.config["CSRF_FAILURE_AUDIT_CAP_PER_WINDOW"] = 2
+    client = signed_in(app)
+    client.patch(f"/school/records/{app.config['RECORD']}", json={"guardian_contact": "+254722222222"})
+    client.post("/admin/records", data={"full_name": "X", "date_of_birth": "2015-01-01", "institution_mode": "school"})
+    client.post("/admin/classes", data={"name": "Grade 1", "academic_year": "2026"})
+    client.post("/school/records/search", data={"name": "X"})
+    assert len(csrf_rows(app)) == 2
+
+
+def test_refusal_still_happens_when_the_audit_write_fails(app, monkeypatch):
+    client = signed_in(app)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("audit store down")
+
+    monkeypatch.setattr("app.services.audit_service.log_action", broken)
+    response = client.patch(f"/school/records/{app.config['RECORD']}", json={"guardian_contact": "+254722222222"})
+    assert response.status_code == 400
+    assert guardian_contact(app) == "+254711111111"

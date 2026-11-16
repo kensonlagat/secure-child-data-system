@@ -27,6 +27,8 @@ class BaseConfig:
     # On top of the per-record bound: at most this many record-level access_denied rows per
     # user in each window, so cycling through many forbidden records cannot flood the log.
     ACCESS_DENIED_RECORD_CAP_PER_WINDOW = 20
+    # CSRF failures (#101) use the same writer and window, with this per-user cap.
+    CSRF_FAILURE_AUDIT_CAP_PER_WINDOW = 20
 
     # Field-level encryption key for sensitive child record columns.
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
