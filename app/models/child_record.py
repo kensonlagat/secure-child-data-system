@@ -31,6 +31,12 @@ class ChildRecord(db.Model):
     institution_mode = db.Column(db.String(20), nullable=False)
     # "school" or "childrens_home" — determines which extension fields apply
 
+    # --- Profile fields (#49a). Empty means not recorded. ---
+    gender = db.Column(db.String(20))  # GENDER_VALUES in record_validation.py; not encrypted (used for filtering)
+    birth_certificate_number = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key))
+    learner_upi = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key))  # NEMIS UPI, school only
+    allergies = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key))
+
     # --- School Mode fields ---
     guardian_contact = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key))
     # Legacy free text (#48): no longer read for scoping or writable. Kept read-only for one

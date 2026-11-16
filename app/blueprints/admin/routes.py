@@ -24,6 +24,9 @@ from app.models.school_class import SchoolClass
 from app.models.user import User
 from app.services.audit_service import log_action
 from app.services.enrolment_service import EnrolmentError, enrol_child
+from app.services.record_validation import RecordValidationError, validate_record_updates
+
+PROFILE_CREATE_FIELDS = ("gender", "birth_certificate_number", "learner_upi", "allergies")  # #49a, optional
 from app.services.otp_service import generate_otp, verify_otp
 from sqlalchemy import func
 
@@ -198,6 +201,21 @@ def create_record():
     record.full_name = full_name
     record.date_of_birth = parsed_date_of_birth
     record.institution_mode = institution_mode
+
+    # Optional profile fields (#49a), validated by the same rules as updates.
+    profile = {field: payload.get(field) for field in PROFILE_CREATE_FIELDS if payload.get(field) not in (None, "")}
+    if institution_mode != "school" and "learner_upi" in profile:
+        message = "learner_upi applies to school records only."
+        if request.is_json:
+            return jsonify({"error": message}), 400
+        return _render_create_record_form(message), 400
+    try:
+        for field, value in validate_record_updates(profile).items():
+            setattr(record, field, value)
+    except RecordValidationError as error:
+        if request.is_json:
+            return jsonify({"error": str(error), "field": error.field_name}), 400
+        return _render_create_record_form(str(error)), 400
 
     school_class = None
     if institution_mode == "school":
