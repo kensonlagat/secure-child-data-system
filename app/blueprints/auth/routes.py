@@ -1,6 +1,4 @@
 """Authentication routes for Sprint 1 registration and login."""
-import hashlib
-import hmac
 import re
 import time
 from datetime import datetime, timedelta
@@ -17,6 +15,7 @@ from app.models.audit_log import AuditLogEntry
 from app.models.otp_event import OTPEvent
 from app.models.user import User
 from app.services.audit_service import log_action
+from app.services.key_derivation import keyed_hash
 from app.services.otp_service import generate_otp, verify_otp
 
 auth_bp = Blueprint("auth", __name__, template_folder="../../templates")
@@ -91,9 +90,8 @@ def _audit_identifier(email, user):
     """
     if user is not None:
         return email
-    key = current_app.config["SECRET_KEY"]
-    key = key if isinstance(key, bytes) else key.encode()
-    digest = hmac.new(key, (email or "").encode(), hashlib.sha256).hexdigest()
+    # Keyed with a subkey, never SECRET_KEY itself (#73).
+    digest = keyed_hash("audit-identifier", email or "")
     return f"unknown:{digest[:40]}"
 
 

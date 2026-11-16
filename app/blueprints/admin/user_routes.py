@@ -17,12 +17,10 @@ Rules enforced on the server (the UI only mirrors them):
 - Every change is audited, with field names only, never values such as phone numbers.
 """
 
-import hashlib
-import hmac
 import re
 import secrets
 
-from flask import abort, current_app, flash, redirect, render_template, request, url_for
+from flask import abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from werkzeug.security import generate_password_hash
 
@@ -33,6 +31,7 @@ from app.middleware.rbac import require_role
 from app.models.otp_event import OTPEvent
 from app.models.user import Role, User
 from app.services.audit_service import log_action
+from app.services.key_derivation import keyed_hash
 from app.services.otp_service import generate_otp, verify_otp
 
 E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
@@ -112,9 +111,7 @@ def _change_phone_context(new_phone):
     stored only as a keyed hash: a plain hash of a phone number can be reversed by trying
     every number, and OTP rows must not hold phone numbers.
     """
-    digest = hmac.new(
-        current_app.config["SECRET_KEY"].encode(), f"change_phone|{new_phone}".encode(), hashlib.sha256
-    ).hexdigest()
+    digest = keyed_hash("change-phone-context", new_phone)  # subkey, not SECRET_KEY (#73)
     return CHANGE_PHONE_CONTEXT_PREFIX + digest[:32]
 
 
