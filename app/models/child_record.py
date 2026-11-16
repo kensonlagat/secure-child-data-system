@@ -10,10 +10,9 @@ encryption backed by FIELD_ENCRYPTION_KEY), so data is encrypted at rest
 even if the raw DB file/backup is exposed.
 """
 from datetime import datetime
-from sqlalchemy_utils import EncryptedType
-from sqlalchemy_utils.types.encrypted.encrypted_type import AesEngine
 from app import db
 from app.config import BaseConfig
+from app.models.encryption import IntegrityCheckedEncryptedType
 
 
 def _encryption_key():
@@ -26,13 +25,14 @@ class ChildRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
     # --- Core fields (shared by both modes) ---
-    full_name = db.Column(EncryptedType(db.String, _encryption_key, AesEngine, "pkcs5"))
+    # AES-GCM with integrity checking (#88): random nonce per value, tampering detected.
+    full_name = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key))
     date_of_birth = db.Column(db.Date, nullable=False)
     institution_mode = db.Column(db.String(20), nullable=False)
     # "school" or "childrens_home" — determines which extension fields apply
 
     # --- School Mode fields ---
-    guardian_contact = db.Column(EncryptedType(db.String, _encryption_key, AesEngine, "pkcs5"))
+    guardian_contact = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key))
     # Legacy free text (#48): no longer read for scoping or writable. Kept read-only for one
     # release, then dropped. The current class comes from `enrolments` (see class_label).
     class_assigned = db.Column(db.String(50))
@@ -42,7 +42,7 @@ class ChildRecord(db.Model):
     # e.g. "in_state_care", "eligible_for_adoption", "placed"
     caseload_worker_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     caseload_worker = db.relationship("User", foreign_keys=[caseload_worker_id])
-    medical_notes = db.Column(EncryptedType(db.String, _encryption_key, AesEngine, "pkcs5"))
+    medical_notes = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key))
 
     is_deleted = db.Column(db.Boolean, nullable=False, default=False)
     deleted_at = db.Column(db.DateTime)
