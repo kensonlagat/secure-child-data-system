@@ -15,9 +15,65 @@
     <p class="lead">{{ page_subtitle }}</p>
 </section>
 
+{# Search (#32). The name term is POSTed and kept on the server, never put in a URL. Only filters
+   on fields this role can see are offered; the server refuses any other filter. #}
+<section class="panel" aria-labelledby="search-title">
+    <h2 id="search-title">Search</h2>
+    <form method="post" action="{{ search.search_url }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if search.can_search_name %}
+        <label class="field-group" for="search-name">
+            <span class="field-label">Name contains</span>
+            <input id="search-name" name="name" maxlength="100" autocomplete="off" value="{{ search.name_term }}">
+        </label>
+        {% endif %}
+        {% if 'class_id' in search.allowed_filters %}
+        <label class="field-group" for="search-class">
+            <span class="field-label">Class</span>
+            <select id="search-class" name="class_id">
+                <option value="">Any class</option>
+                {% for school_class in search.classes %}
+                <option value="{{ school_class.id }}" {% if search.filter_args.get('class_id') == school_class.id | string %}selected{% endif %}>{{ school_class.label }} ({{ school_class.academic_year }})</option>
+                {% endfor %}
+            </select>
+        </label>
+        {% endif %}
+        {% if 'dob_from' in search.allowed_filters %}
+        <label class="field-group" for="search-dob-from">
+            <span class="field-label">Born on or after</span>
+            <input id="search-dob-from" name="dob_from" type="date" value="{{ search.filter_args.get('dob_from') or '' }}">
+        </label>
+        <label class="field-group" for="search-dob-to">
+            <span class="field-label">Born on or before</span>
+            <input id="search-dob-to" name="dob_to" type="date" value="{{ search.filter_args.get('dob_to') or '' }}">
+        </label>
+        {% endif %}
+        {% if 'legal_status' in search.allowed_filters %}
+        <label class="field-group" for="search-legal">
+            <span class="field-label">Legal status</span>
+            <select id="search-legal" name="legal_status">
+                <option value="">Any status</option>
+                {% for status in search.legal_statuses %}
+                <option value="{{ status }}" {% if search.filter_args.get('legal_status') == status %}selected{% endif %}>{{ status.replace('_', ' ') | capitalize }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        {% endif %}
+        <div class="form-actions">
+            <button type="submit" class="primary-button">Search</button>
+        </div>
+    </form>
+    {% if search.name_term or search.filter_args %}
+    <form method="post" action="{{ search.clear_url }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="secondary-button">Clear search</button>
+    </form>
+    {% endif %}
+</section>
+
 <section class="panel" aria-labelledby="records-table-title">
     <div class="section-head">
-        <h2 id="records-table-title">{{ record_entries | length }} record{{ '' if record_entries | length == 1 else 's' }}</h2>
+        <h2 id="records-table-title">{{ paging.total }} record{{ '' if paging.total == 1 else 's' }}{% if search.name_term or search.filter_args %} found{% endif %}</h2>
         {% if shown_fields | select('in', ui.SENSITIVE_FIELDS) | list %}
         <p class="muted">{{ ui.lock('full_name') }} Encrypted at rest</p>
         {% endif %}
@@ -65,14 +121,28 @@
                 {% else %}
                 <tr>
                     <td colspan="{{ shown_fields|length + 1 }}" class="empty-state">
+                        {% if search.name_term or search.filter_args %}
+                        <strong>No records match this search.</strong>
+                        {% elif paging.page > 1 %}
+                        <strong>No records on this page.</strong>
+                        {% else %}
                         <strong>No records to show.</strong><br>
                         Records appear here once they are assigned to you.
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    {% if paging.total > paging.per_page or paging.page > 1 %}
+    <nav class="pagination" aria-label="Pages">
+        {% if paging.prev_url %}<a class="secondary-button" href="{{ paging.prev_url }}" rel="prev">Previous</a>{% endif %}
+        <span class="muted">Page {{ paging.page }} of {{ paging.last_page }}</span>
+        {% if paging.next_url %}<a class="secondary-button" href="{{ paging.next_url }}" rel="next">Next</a>{% endif %}
+    </nav>
+    {% endif %}
 </section>
 
 {% if current_user.role and current_user.role.name == 'administrator' %}

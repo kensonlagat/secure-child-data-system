@@ -132,13 +132,13 @@ def test_learner_upi_is_never_writable_on_a_childrens_home_record(app):
 
 
 def test_teacher_list_shows_gender_and_allergies_but_not_identity_numbers(app):
-    rows = sign_in(app, "teacher").get("/school/records", headers={"Accept": "application/json"}).get_json()
+    rows = sign_in(app, "teacher").get("/school/records", headers={"Accept": "application/json"}).get_json()["items"]
     assert rows[0]["allergies"] == "Peanuts (marker-a11e)" and rows[0]["gender"] == "female"
     assert "birth_certificate_number" not in rows[0] and "learner_upi" not in rows[0]
 
 
 def test_legal_officer_sees_birth_certificate_but_no_health_fields(app):
-    rows = sign_in(app, "legal_officer").get("/home-mode/records", headers={"Accept": "application/json"}).get_json()
+    rows = sign_in(app, "legal_officer").get("/home-mode/records", headers={"Accept": "application/json"}).get_json()["items"]
     assert rows[0]["birth_certificate_number"] == "BC/2012-0007"
     assert "allergies" not in rows[0] and "gender" not in rows[0]
 
@@ -223,7 +223,7 @@ def test_tampered_profile_value_reads_as_unreadable_without_a_500(app):
         db.session.commit()
     response = sign_in(app, "teacher").get("/school/records", headers={"Accept": "application/json"})
     assert response.status_code == 200
-    assert response.get_json()[0]["allergies"] == UNREADABLE
+    assert response.get_json()["items"][0]["allergies"] == UNREADABLE
 
 
 # --- Creating a record with profile fields ----------------------------------------------------

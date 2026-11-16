@@ -15,6 +15,7 @@ from app.models.audit_log import AuditLogEntry
 from app.models.otp_event import OTPEvent
 from app.models.user import User
 from app.services.audit_service import log_action
+from app.services.record_search import SEARCH_SESSION_KEY as RECORD_SEARCH_SESSION_KEY
 from app.services.key_derivation import keyed_hash
 from app.services.otp_service import generate_otp, verify_otp
 
@@ -270,6 +271,7 @@ def login():
         )
         return _login_denied_response(PORTAL_MISMATCH_ERROR)
 
+    session.pop(RECORD_SEARCH_SESSION_KEY, None)  # a new sign-in starts with no search term (#32)
     login_user(user)
     session[ACTIVE_PORTAL_SESSION_KEY] = portal
     log_action(
@@ -288,6 +290,7 @@ def logout():
     """Terminate the current login session and return to login."""
     logout_user()
     session.pop(ACTIVE_PORTAL_SESSION_KEY, None)
+    session.pop(RECORD_SEARCH_SESSION_KEY, None)  # search terms never outlive the sign-in (#32)
     return redirect(url_for("auth.login"))
 
 

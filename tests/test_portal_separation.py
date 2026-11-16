@@ -208,7 +208,7 @@ def test_school_list_hides_childrens_home_columns_but_data_is_unchanged(app):
     assert '<th scope="col">Class ' in html  # the derived class label (#48)
 
     # Hide only: the JSON API still returns what access_service allows for the role.
-    rows = client.get("/school/records", headers={"Accept": "application/json"}).get_json()
+    rows = client.get("/school/records", headers={"Accept": "application/json"}).get_json()["items"]
     assert "legal_status" in rows[0]
 
 
