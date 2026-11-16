@@ -229,11 +229,24 @@ def test_audit_rows_never_contain_otp_codes(app, sms):
         assert code not in details
 
 
-@pytest.mark.xfail(strict=True, reason="#98: confirm-approval before an approval code exists returns 500")
 def test_confirm_approval_before_an_approval_code_exists_is_refused_cleanly(app, sms):
+    """#98: this used to raise AttributeError (a 500)."""
     legal1, legal2 = sign_in(app, "legal1"), sign_in(app, "legal2")
     request_id = start_request(app, sms, legal1)  # pending_approval, but nobody asked for the approver code
 
     response = legal2.post(f"/home-mode/legal-status/confirm-approval/{request_id}", json={"otp_code": "123456"})
 
-    assert response.status_code in (400, 403)
+    assert response.status_code == 400
+    assert legal_status(app) == "in_state_care"
+    assert "legal_status_change_approval_otp_failed" in actions(app)
+
+
+def test_confirm_approval_while_the_request_code_is_still_pending_is_refused(app, sms):
+    legal1, legal2 = sign_in(app, "legal1"), sign_in(app, "legal2")
+    response = legal1.post(f"/home-mode/legal-status/{app.config['RECORD']}/request-change",
+                           json={"requested_status": "placed"})
+    request_id = response.get_json()["change_request_id"]  # still pending_otp
+
+    assert legal2.post(f"/home-mode/legal-status/confirm-approval/{request_id}",
+                       json={"otp_code": "123456"}).status_code == 400
+    assert legal_status(app) == "in_state_care"
