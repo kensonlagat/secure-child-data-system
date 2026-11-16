@@ -61,7 +61,8 @@ def raw(app, record_id, column="full_name"):
 def tamper(app, record_id, column="medical_notes"):
     with app.app_context():
         stored = bytearray(raw(app, record_id, column))
-        stored[-3] = ord("A") if stored[-3] != ord("A") else ord("B")  # still valid base64, wrong tag
+        middle = len(stored) // 2  # a fully significant base64 character, never padding bits
+        stored[middle] = ord("A") if stored[middle] != ord("A") else ord("B")  # still valid base64, wrong tag
         db.session.execute(text(f"UPDATE child_records SET {column} = :v WHERE id = :id"),
                            {"v": bytes(stored), "id": record_id})
         db.session.commit()
