@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block title %}Search not allowed | Child Data System{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="notice error" role="alert">{{ message }}</div>
+    <p><a class="secondary-button" href="{{ request.path }}">Back to the list</a></p>
+</section>
+{% endblock %}

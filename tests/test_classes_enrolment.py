@@ -76,7 +76,7 @@ def sign_in(app, key, portal="school"):
 
 
 def visible_ids(app, key):
-    rows = sign_in(app, key).get("/school/records", headers={"Accept": "application/json"}).get_json()
+    rows = sign_in(app, key).get("/school/records", headers={"Accept": "application/json"}).get_json()["items"]
     return sorted(row["id"] for row in rows)
 
 
@@ -150,7 +150,7 @@ def test_deleted_records_stay_invisible_even_when_enrolled(app):
 
 
 def test_teacher_list_shows_the_class_label(app):
-    rows = sign_in(app, "t6a").get("/school/records", headers={"Accept": "application/json"}).get_json()
+    rows = sign_in(app, "t6a").get("/school/records", headers={"Accept": "application/json"}).get_json()["items"]
     assert {row["class_label"] for row in rows} == {"Grade 6A"}
     assert all("class_assigned" not in row for row in rows)
 

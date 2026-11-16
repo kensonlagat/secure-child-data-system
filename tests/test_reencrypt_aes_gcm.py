@@ -99,7 +99,7 @@ def test_tampered_value_reads_as_unreadable_without_a_500(app):
     rows = client.get("/school/records", headers={"Accept": "application/json"})
 
     assert html.status_code == 200 and rows.status_code == 200
-    notes = {row["id"]: row["medical_notes"] for row in rows.get_json()}
+    notes = {row["id"]: row["medical_notes"] for row in rows.get_json()["items"]}
     assert notes[app.config["FIRST"]] == UNREADABLE
     assert "marker-91c2" not in html.get_data(as_text=True)
 

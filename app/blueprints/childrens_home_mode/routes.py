@@ -13,6 +13,7 @@ from flask import Blueprint, abort, current_app, jsonify, render_template, reque
 from flask_login import current_user, login_required
 
 from app import db
+from app.blueprints import record_list
 from app.middleware.rbac import audit_access_denied, require_role
 from app.models.child_record import ChildRecord
 from app.models.legal_status_change_request import LegalStatusChangeRequest, VALID_LEGAL_STATUSES
@@ -103,41 +104,27 @@ def _serialize_legal_status_request(change_request):
 @home_bp.route("/records")
 @login_required
 def records():
-    """Return the current user's scoped children's-home child records."""
-    visible_fields = get_visible_fields(current_user)
-    records_query = get_accessible_records(current_user).filter(
-        ChildRecord.institution_mode == "childrens_home"
-    )
-    record_entries = []
-    for record in records_query.all():
-        record_entries.append(
-            {
-                "record": record,
-                "values": _serialize_record(record, visible_fields),
-                "writable_fields": get_writable_fields(current_user, record),
-            }
-        )
-
-    log_action(
-        user_id=current_user.id,
-        action="view_records",
-        target_record_type="child_record",
-        details="Viewed scoped children's home child records",
+    """The current user's scoped children's-home records, with search and pagination (#32)."""
+    return record_list.records_response(
+        "childrens_home",
+        list_endpoint="childrens_home_mode.records",
+        edit_endpoint="childrens_home_mode.edit_record",
+        page_title="Children's Home Records",
+        page_heading="Children's home records",
+        page_subtitle="Your scoped children's-home child records.",
     )
 
-    wants_html = request.accept_mimetypes.best_match(["text/html", "application/json"]) == "text/html"
-    if wants_html:
-        return render_template(
-            "records/list.html",
-            page_title="Children's Home Records",
-            page_heading="Children's home records",
-            page_subtitle="Your scoped children's-home child records.",
-            visible_fields=visible_fields,
-            record_entries=record_entries,
-            edit_url_builder=lambda record_id: url_for("childrens_home_mode.edit_record", record_id=record_id),
-        )
 
-    return jsonify([entry["values"] for entry in record_entries])
+@home_bp.route("/records/search", methods=["POST"])
+@login_required
+def search_records():
+    return record_list.search_post("childrens_home", "childrens_home_mode.records")
+
+
+@home_bp.route("/records/search/clear", methods=["POST"])
+@login_required
+def clear_record_search():
+    return record_list.clear_post("childrens_home", "childrens_home_mode.records")
 
 
 @home_bp.route("/legal-status/requests")
