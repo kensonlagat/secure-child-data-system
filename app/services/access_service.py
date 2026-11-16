@@ -120,25 +120,30 @@ def get_visible_fields(user):
             "id",
             "full_name",
             "date_of_birth",
+            "gender",
             CLASS_LABEL_FIELD,
             "guardian_contact",
+            "allergies",
         ]
 
     if role_name == "school_nurse":
-        return ["id", "full_name", "date_of_birth", "medical_notes"]
+        return ["id", "full_name", "date_of_birth", "gender", "medical_notes", "allergies"]
 
     if role_name == "social_worker":
         return [
             "id",
             "full_name",
             "date_of_birth",
+            "gender",
+            "birth_certificate_number",
             "medical_notes",
+            "allergies",
             "legal_status",
             "caseload_worker_id",
         ]
 
     if role_name == "legal_officer":
-        return ["id", "full_name", "date_of_birth", "legal_status"]
+        return ["id", "full_name", "date_of_birth", "birth_certificate_number", "legal_status"]
 
     return []
 
@@ -151,13 +156,19 @@ def get_writable_fields(user, record):
         # Excluded fields are institution_mode (role scopes), legal_status (two-person
         # workflow), is_deleted/deleted_at (OTP-gated deletion), id, and timestamps, and
         # class_assigned (#48: class changes go only through the audited enrolment actions).
-        return [
+        fields = [
             "full_name",
             "date_of_birth",
             "guardian_contact",
             "medical_notes",
             "caseload_worker_id",
+            "gender",
+            "birth_certificate_number",
+            "allergies",
         ]
+        if getattr(record, "institution_mode", None) == "school":
+            fields.append("learner_upi")  # NEMIS UPI exists for school records only (#49a)
+        return fields
 
     if role_name == "teacher":
         if not can_access_record(user, record):
@@ -167,11 +178,11 @@ def get_writable_fields(user, record):
     if role_name == "school_nurse":
         if getattr(record, "institution_mode", None) != "school":
             return []
-        return ["medical_notes"]
+        return ["medical_notes", "allergies"]
 
     if role_name == "social_worker":
         if not can_access_record(user, record):
             return []
-        return ["medical_notes"]
+        return ["medical_notes", "allergies"]
 
     return []

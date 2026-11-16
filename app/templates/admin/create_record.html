@@ -27,6 +27,27 @@
             <input type="date" name="date_of_birth" required>
         </label>
 
+        <label class="field-group" for="gender">
+            <span class="field-label">Gender (optional)</span>
+            <select id="gender" name="gender">
+                <option value="">Not recorded yet</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="not_recorded">Prefer not to record</option>
+            </select>
+        </label>
+
+        <label class="field-group" for="birth_certificate_number">
+            <span class="field-label">Birth certificate number (optional) {{ ui.lock('birth_certificate_number') }}</span>
+            <input id="birth_certificate_number" name="birth_certificate_number" maxlength="30" autocomplete="off">
+            <span class="field-help">Letters, digits, / and -. Encrypted at rest.</span>
+        </label>
+
+        <label class="field-group" for="allergies">
+            <span class="field-label">Allergies (optional) {{ ui.lock('allergies') }}</span>
+            <input id="allergies" name="allergies" maxlength="500" autocomplete="off">
+        </label>
+
         {# The record is created in the active portal. Switch portals to create the other kind.
            The server still validates institution_mode on submit. #}
         <div class="field-group">
@@ -40,6 +61,11 @@
             <span class="field-label">Guardian contact</span>
             <input type="text" name="guardian_contact" placeholder="School mode only">
             <span class="field-help">Used for school records when parent notifications are needed.</span>
+        </label>
+
+        <label class="field-group" for="learner_upi">
+            <span class="field-label">Learner UPI (NEMIS, optional) {{ ui.lock('learner_upi') }}</span>
+            <input id="learner_upi" name="learner_upi" maxlength="20" autocomplete="off">
         </label>
 
         <label class="field-group" for="class_id">

@@ -28,7 +28,14 @@
         {% for field in field_meta if field.name not in hidden_fields %}
         <label class="field-group" for="field-{{ field.name }}">
             <span class="field-label">{{ ui.field_label(field.name) }} {{ ui.lock(field.name) }}</span>
-            {% if field.name == 'institution_mode' %}
+            {% if field.name == 'gender' %}
+            <select id="field-{{ field.name }}" name="{{ field.name }}">
+                <option value="" {% if not field.value %}selected{% endif %}>Not recorded yet</option>
+                {% for option, label in [('female', 'Female'), ('male', 'Male'), ('not_recorded', 'Prefer not to record')] %}
+                <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            {% elif field.name == 'institution_mode' %}
             <select id="field-{{ field.name }}" name="{{ field.name }}">
                 <option value="school" {% if field.value=='school' %}selected{% endif %}>School</option>
                 <option value="childrens_home" {% if field.value=='childrens_home' %}selected{% endif %}>Children's Home

@@ -9,6 +9,17 @@ from app.models.user import User
 
 E164_PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 
+# Profile fields (#49a).
+GENDER_VALUES = {"female", "male", "not_recorded"}
+BIRTH_CERTIFICATE_PATTERN = re.compile(r"^[A-Za-z0-9/-]{1,30}$")
+LEARNER_UPI_PATTERN = re.compile(r"^[A-Za-z0-9]{1,20}$")
+ALLERGIES_MAX_LENGTH = 500
+PROFILE_TEXT_RULES = {
+    "birth_certificate_number": (BIRTH_CERTIFICATE_PATTERN,
+                                 "birth_certificate_number may contain letters, digits, / and -, up to 30 characters."),
+    "learner_upi": (LEARNER_UPI_PATTERN, "learner_upi may contain letters and digits, up to 20 characters."),
+}
+
 
 class RecordValidationError(ValueError):
     """Represent a client-correctable child-record field error."""
@@ -45,6 +56,13 @@ def _validate_text(field_name, value, required=False):
             "guardian_contact must be a valid E.164 phone number.",
         )
 
+    if field_name in PROFILE_TEXT_RULES:
+        pattern, message = PROFILE_TEXT_RULES[field_name]
+        if not pattern.fullmatch(value):
+            raise RecordValidationError(field_name, message)
+    if field_name == "allergies" and len(value) > ALLERGIES_MAX_LENGTH:
+        raise RecordValidationError(field_name, f"allergies must be {ALLERGIES_MAX_LENGTH} characters or fewer.")
+
     max_length = _column_max_length(field_name)
     if max_length is not None and len(value) > max_length:
         raise RecordValidationError(
@@ -63,6 +81,9 @@ def validate_record_updates(payload):
             "full_name",
             "guardian_contact",
             "medical_notes",
+            "birth_certificate_number",
+            "learner_upi",
+            "allergies",
         }:
             validated[field_name] = _validate_text(
                 field_name,
@@ -100,6 +121,15 @@ def validate_record_updates(payload):
                         "caseload_worker_id must reference an active social_worker.",
                     )
             validated[field_name] = value
+        elif field_name == "gender":
+            if value is None or (isinstance(value, str) and not value.strip()):
+                validated[field_name] = None
+            elif isinstance(value, str) and value.strip() in GENDER_VALUES:
+                validated[field_name] = value.strip()
+            else:
+                raise RecordValidationError(
+                    field_name, f"gender must be one of: {', '.join(sorted(GENDER_VALUES))}."
+                )
         else:
             raise RecordValidationError(field_name, f"{field_name} cannot be updated.")
 

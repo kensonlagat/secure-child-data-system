@@ -29,6 +29,10 @@ ADMIN_ALLOWLIST = [
     "guardian_contact",
     "medical_notes",
     "caseload_worker_id",
+    "gender",
+    "birth_certificate_number",
+    "allergies",
+    "learner_upi",  # school records only (#49a)
 ]
 
 
