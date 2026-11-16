@@ -426,6 +426,16 @@ def confirm_legal_status_approval(change_request_id):
     record = require_record_access(change_request.child_record_id)
     old_status = record.legal_status
 
+    # No approver code yet (or the request has moved on): refuse cleanly before touching the
+    # code's owner, which would otherwise raise and return a 500 (#98).
+    if change_request.status != "pending_approval" or change_request.approver_otp_event is None:
+        _log_and_abort(
+            400,
+            "legal_status_change_approval_otp_failed",
+            "Legal status change request is not awaiting approver OTP verification.",
+            target_record_id=record.id,
+        )
+
     if current_user.id != change_request.approver_otp_event.user_id:
         _log_and_abort(
             403,
