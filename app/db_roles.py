@@ -23,7 +23,8 @@ ROLE_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 AUDIT_TABLE = "audit_log_entries"
 # Append-only tables: the app role may read and insert, never update (and nothing is ever
 # deletable). Every future append-only table must be added here when it is created.
-APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records", "attendance_corrections", "absence_alerts")
+APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records", "attendance_corrections", "absence_alerts",
+                      "clinic_visits")
 # Tables the app role may update only in these columns (everything else is fixed once written).
 COLUMN_UPDATE_TABLES = {
     "authorised_collectors": ("is_active", "revoked_by", "revoked_at"),
