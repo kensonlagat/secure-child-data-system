@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% set public_layout = true %}
+
+{% block body_class %}auth-page{% endblock %}
+{% block public_portal %}neutral{% endblock %}
+
+{% block title %}Parent sign-in | Child Data System{% endblock %}
+
+{% block content %}
+<div class="auth-layout">
+    <section class="auth-intro">
+        <p class="eyebrow">Parent portal</p>
+        <h1>Sign in with your phone</h1>
+        <p class="lead">Enter the phone number the school has for you. We'll send a one-time code by SMS.
+            You'll see only your own children's basic information.</p>
+    </section>
+
+    <section class="panel auth-card" aria-labelledby="parent-signin-title">
+        <h2 id="parent-signin-title" class="auth-card-title">Parent sign-in</h2>
+        <form method="post" action="{{ url_for('parent.login') }}" class="form-grid">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field-group" for="phone">
+                <span class="field-label">Phone number</span>
+                <input id="phone" name="phone" type="tel" required maxlength="20" placeholder="+254712345678"
+                    autocomplete="tel" autofocus>
+            </label>
+            <div class="form-actions">
+                <button type="submit" class="primary-button">Send my code</button>
+            </div>
+            <p class="auth-links"><a class="action-link" href="{{ url_for('index') }}">Staff? Choose your portal</a></p>
+        </form>
+    </section>
+</div>
+{% endblock %}

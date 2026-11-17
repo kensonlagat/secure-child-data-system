@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}My children | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Parent portal</p>
+    <h1>My children</h1>
+    <p class="lead">The children the school has linked to your phone number. <a href="{{ url_for('auth.logout') }}">Sign out</a></p>
+</section>
+
+<section class="panel" aria-labelledby="children-title">
+    <h2 id="children-title">{{ children | length }} child{{ '' if children | length == 1 else 'ren' }}</h2>
+    {% if children %}
+    <ul class="plain-list">
+        {% for child in children %}
+        <li><a class="secondary-button" href="{{ url_for('parent.child', record_id=child.id) }}">{{ child.full_name }}{% if child.class_label %} ({{ child.class_label }}){% endif %}</a></li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No children are linked to your account at the moment. Contact the school if this is wrong.</p>
+    {% endif %}
+</section>
+{% endblock %}

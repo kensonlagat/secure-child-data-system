@@ -35,6 +35,8 @@ COLUMN_UPDATE_TABLES = {
     # A trigger also refuses any change once a card is published.
     "report_cards": ("status", "teacher_comment", "updated_by", "updated_at", "published_by", "published_at"),
     "report_card_entries": ("level", "comment", "updated_by", "updated_at"),
+    # Guardian links (#67): only the status columns; who is linked to whom never changes.
+    "guardian_links": ("status", "verified_by", "verified_at", "revoked_by", "revoked_at"),
 }
 MIGRATION_TABLE = "alembic_version"
 PURGE_FUNCTION = "purge_synthetic_audit_entries()"

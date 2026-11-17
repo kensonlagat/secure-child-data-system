@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Guardian links | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Guardian links</h1>
+    <p class="lead">Link a parent's phone number to a school child. A new link gives no access until you have checked
+        the parent's identity in person and confirmed with a code sent to your phone. Record only which document you
+        checked, never its number.</p>
+</section>
+
+<section class="panel" aria-labelledby="new-link-title">
+    <h2 id="new-link-title">New link</h2>
+    <form method="post" action="{{ url_for('admin.create_guardian_link') }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="child_record_id">
+            <span class="field-label">Child</span>
+            <select id="child_record_id" name="child_record_id" required>
+                <option value="">Choose a child</option>
+                {% for child in children %}<option value="{{ child.id }}">{{ child.full_name }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="field-group" for="full_name">
+            <span class="field-label">Parent's name</span>
+            <input id="full_name" name="full_name" required maxlength="120" autocomplete="off">
+        </label>
+        <label class="field-group" for="phone">
+            <span class="field-label">Parent's phone (international format)</span>
+            <input id="phone" name="phone" type="tel" required maxlength="20" placeholder="+254712345678" autocomplete="off">
+        </label>
+        <label class="field-group" for="relationship">
+            <span class="field-label">Relationship</span>
+            <select id="relationship" name="relationship" required>
+                {% for relationship in relationships %}<option value="{{ relationship }}">{{ relationship | capitalize }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="field-group" for="identity_document_type">
+            <span class="field-label">Identity document checked (type only)</span>
+            <select id="identity_document_type" name="identity_document_type" required>
+                {% for document_type in document_types %}<option value="{{ document_type }}">{{ document_type.replace('_', ' ') | capitalize }}</option>{% endfor %}
+            </select>
+        </label>
+        <div class="form-actions"><button type="submit" class="primary-button">Create pending link</button></div>
+    </form>
+</section>
+
+<section class="panel" aria-labelledby="links-title">
+    <h2 id="links-title">{{ links | length }} link{{ '' if links | length == 1 else 's' }}</h2>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="links-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Child</th><th scope="col">Parent</th><th scope="col">Relationship</th>
+                <th scope="col">Document checked</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+            <tbody>
+                {% for link in links %}
+                <tr>
+                    <td>{{ names.get(link.child_record_id, '') }}</td>
+                    <td>{{ link.guardian.full_name }} <span class="mono muted">{{ link.guardian.login_phone }}</span></td>
+                    <td>{{ link.relationship | capitalize }}</td>
+                    <td>{{ link.identity_document_type.replace('_', ' ') | capitalize }}</td>
+                    <td>{{ link.status | capitalize }}</td>
+                    <td class="table-actions">
+                        {% if link.status == 'pending' %}
+                        {% if verifying == link.id %}
+                        <form method="post" action="{{ url_for('admin.verify_guardian_link', link_id=link.id) }}" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <label class="visually-hidden" for="code-{{ link.id }}">Code</label>
+                            <input id="code-{{ link.id }}" name="code" required inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+                            <button type="submit" class="action-button">Verify</button>
+                        </form>
+                        {% else %}
+                        <form method="post" action="{{ url_for('admin.request_guardian_link_code', link_id=link.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="action-button">Send me a code</button>
+                        </form>
+                        {% endif %}
+                        {% endif %}
+                        {% if link.status != 'revoked' %}
+                        <form method="post" action="{{ url_for('admin.revoke_guardian_link', link_id=link.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="action-button danger">Revoke</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="empty-state">No guardian links yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

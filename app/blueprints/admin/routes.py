@@ -529,3 +529,4 @@ def confirm_safeguarding_lead_change(user_id):
 from app.blueprints.admin import user_routes  # noqa: E402,F401
 from app.blueprints.admin import class_routes  # noqa: E402,F401
 from app.blueprints.admin import archive_routes  # noqa: E402,F401
+from app.blueprints.admin import guardian_routes  # noqa: E402,F401

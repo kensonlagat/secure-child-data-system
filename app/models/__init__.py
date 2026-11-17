@@ -25,6 +25,7 @@ from app.models.export import ExportRequest
 from app.models.document import Document, DocumentBlob
 from app.models.photo import ChildPhoto
 from app.models.report_card import ReportCard, ReportCardEntry
+from app.models.guardian_link import GuardianLink
 
 __all__ = [
 	"User",
@@ -62,4 +63,5 @@ __all__ = [
 	"ChildPhoto",
 	"ReportCard",
 	"ReportCardEntry",
+	"GuardianLink",
 ]

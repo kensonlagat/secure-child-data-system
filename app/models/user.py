@@ -30,10 +30,14 @@ class Role(db.Model):
 
 class User(db.Model, UserMixin):
     __tablename__ = "users"
+    __table_args__ = (db.CheckConstraint("email IS NOT NULL OR login_phone IS NOT NULL",
+                                         name="ck_users_email_or_login_phone"),)
 
     id = db.Column(db.Integer, primary_key=True)
     full_name = db.Column(db.String(120), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    # Parent accounts (#67) have no email; they sign in with login_phone instead.
+    email = db.Column(db.String(120), unique=True, nullable=True, index=True)
+    login_phone = db.Column(db.String(20), unique=True, nullable=True)
     phone_number = db.Column(db.String(20), nullable=False)
     # OTP and SMS notifications are delivered here via Africa's Talking
 
