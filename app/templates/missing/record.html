@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Missing child alert | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Missing child <span class="mono">#{{ record.id }}</span></p>
+    <h1>Missing child alert</h1>
+    <p class="lead">Raising an alert sends the home manager an immediate SMS (with no child details). The alert stays
+        on screen for the manager until it is resolved.</p>
+</section>
+
+{% if alert %}
+<section class="panel" aria-labelledby="open-title">
+    <div class="notice error" role="alert">Open alert raised <span class="mono">{{ alert.raised_at.strftime('%Y-%m-%d %H:%M') }}</span>
+        (UTC). Last seen <span class="mono">{{ alert.last_seen_at.strftime('%Y-%m-%d %H:%M') }}</span>.</div>
+    <h2 id="open-title">Circumstances</h2>
+    <p>{{ alert.circumstances }}</p>
+    <h3>Actions taken</h3>
+    <p>{{ alert.actions_taken or 'None recorded yet.' }}</p>
+    <form method="post" action="{{ url_for('missing.update_actions', alert_id=alert.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="actions_taken"><span class="field-label">Update actions taken {{ ui.lock('medical_notes') }}</span>
+            <textarea id="actions_taken" name="actions_taken" required maxlength="2000" rows="3">{{ alert.actions_taken or '' }}</textarea></label>
+        <div class="form-actions"><button type="submit" class="secondary-button">Save actions</button></div>
+    </form>
+    {% if can_resolve %}
+    <h3>Resolve</h3>
+    <form method="post" action="{{ url_for('missing.resolve', alert_id=alert.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="found_at"><span class="field-label">Found or returned at</span>
+            <input id="found_at" name="found_at" type="datetime-local" required></label>
+        <label class="field-group" for="resolution_notes"><span class="field-label">Notes {{ ui.lock('medical_notes') }}</span>
+            <textarea id="resolution_notes" name="resolution_notes" required maxlength="2000" rows="3"></textarea></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Resolve alert</button></div>
+    </form>
+    {% endif %}
+</section>
+{% else %}
+<section class="panel" aria-labelledby="raise-title">
+    <h2 id="raise-title">Report this child missing</h2>
+    <form method="post" action="{{ url_for('missing.raise_alert', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="last_seen_at"><span class="field-label">Time last seen</span>
+            <input id="last_seen_at" name="last_seen_at" type="datetime-local" required></label>
+        <label class="field-group" for="circumstances"><span class="field-label">Circumstances {{ ui.lock('medical_notes') }}</span>
+            <textarea id="circumstances" name="circumstances" required maxlength="2000" rows="3"></textarea></label>
+        <label class="field-group" for="actions_taken"><span class="field-label">Actions taken so far {{ ui.lock('medical_notes') }}</span>
+            <textarea id="actions_taken" name="actions_taken" maxlength="2000" rows="2"></textarea></label>
+        <div class="form-actions"><button type="submit" class="primary-button danger">Raise missing alert</button></div>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

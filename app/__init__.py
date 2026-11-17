@@ -132,6 +132,19 @@ def create_app(config_name="development"):
         return response
 
     @app.context_processor
+    def inject_open_missing_alerts():
+        """Open missing child alerts stay prominent for the home manager and administrators
+        until resolved (#60). Only a count is exposed; no child details."""
+        from flask_login import current_user
+
+        role = getattr(getattr(current_user, "role", None), "name", None) if current_user.is_authenticated else None
+        if role not in ("home_manager", "administrator"):
+            return {"open_missing_alerts": 0}
+        from app.models.missing import MissingChildAlert
+
+        return {"open_missing_alerts": MissingChildAlert.query.filter_by(status="open").count()}
+
+    @app.context_processor
     def inject_active_portal():
         """Expose the portal whose pages a signed-in user sees (display only).
 
@@ -188,6 +201,7 @@ def create_app(config_name="development"):
     from app.blueprints.health.routes import health_bp
     from app.blueprints.family.routes import family_bp
     from app.blueprints.placement.routes import placement_bp
+    from app.blueprints.missing.routes import missing_bp
     from app.blueprints.principal.routes import principal_bp
 
     app.register_blueprint(auth_bp)
@@ -207,6 +221,7 @@ def create_app(config_name="development"):
     app.register_blueprint(health_bp, url_prefix="/health")
     app.register_blueprint(family_bp, url_prefix="/family")
     app.register_blueprint(placement_bp, url_prefix="/placement")
+    app.register_blueprint(missing_bp, url_prefix="/missing")
     app.register_blueprint(principal_bp, url_prefix="/principal")
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
