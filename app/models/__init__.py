@@ -19,6 +19,7 @@ from app.models.care_plan import CarePlanGoal, CaseNote
 from app.models.court import CourtHearing
 from app.models.health import HealthEntry, MedicationAdministration, MedicationSchedule
 from app.models.family import FamilyTracing, FamilyVisit
+from app.models.placement import AftercareFollowUp, Placement
 
 __all__ = [
 	"User",
@@ -47,4 +48,6 @@ __all__ = [
 	"MedicationAdministration",
 	"FamilyVisit",
 	"FamilyTracing",
+	"Placement",
+	"AftercareFollowUp",
 ]

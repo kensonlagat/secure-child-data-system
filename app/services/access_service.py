@@ -402,3 +402,22 @@ def can_read_family(user, record):
     if can_write_family(user, record):
         return True
     return _is_home_record(record) and _get_role_name(user) == "home_manager" and can_access_record(user, record)
+
+
+# --- Placement, reintegration and aftercare (#59) ----------------------------------------------
+
+
+def can_write_placement(user, record):
+    """Only the assigned social worker records placements and follow-ups. Fail closed.
+    Nothing in this feature can change legal_status (hard rule 3)."""
+    return (_is_home_record(record) and _get_role_name(user) == "social_worker"
+            and getattr(record, "caseload_worker_id", None) == getattr(user, "id", None)
+            and can_access_record(user, record))
+
+
+def can_read_placement(user, record):
+    """The assigned social worker, plus legal officers and the home manager (read only)."""
+    if can_write_placement(user, record):
+        return True
+    return (_is_home_record(record) and _get_role_name(user) in {"legal_officer", "home_manager"}
+            and can_access_record(user, record))

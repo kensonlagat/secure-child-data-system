@@ -187,6 +187,7 @@ def create_app(config_name="development"):
     from app.blueprints.court.routes import court_bp
     from app.blueprints.health.routes import health_bp
     from app.blueprints.family.routes import family_bp
+    from app.blueprints.placement.routes import placement_bp
     from app.blueprints.principal.routes import principal_bp
 
     app.register_blueprint(auth_bp)
@@ -205,6 +206,7 @@ def create_app(config_name="development"):
     app.register_blueprint(court_bp, url_prefix="/court")
     app.register_blueprint(health_bp, url_prefix="/health")
     app.register_blueprint(family_bp, url_prefix="/family")
+    app.register_blueprint(placement_bp, url_prefix="/placement")
     app.register_blueprint(principal_bp, url_prefix="/principal")
 
     # Register trusted local CLI bootstrap commands (roles + first admin).

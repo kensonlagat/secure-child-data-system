@@ -25,7 +25,7 @@ AUDIT_TABLE = "audit_log_entries"
 # deletable). Every future append-only table must be added here when it is created.
 APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records", "attendance_corrections", "absence_alerts",
                       "clinic_visits", "case_notes", "health_entries", "medication_administrations",
-                      "family_visits")
+                      "family_visits", "placements")
 # Tables the app role may update only in these columns (everything else is fixed once written).
 COLUMN_UPDATE_TABLES = {
     "authorised_collectors": ("status", "decided_by", "decided_at", "is_active", "revoked_by", "revoked_at"),
