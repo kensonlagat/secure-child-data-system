@@ -25,12 +25,12 @@ from app.models.user import User
 from app.services.audit_service import log_action
 from app.services.enrolment_service import EnrolmentError, enrol_child
 from app.services.record_validation import RecordValidationError, validate_record_updates
-
-PROFILE_CREATE_FIELDS = ("gender", "birth_certificate_number", "learner_upi", "allergies")  # #49a, optional
 from app.services.otp_service import generate_otp, verify_otp
 from sqlalchemy import func
 
 admin_bp = Blueprint("admin", __name__, template_folder="../../templates")
+
+PROFILE_CREATE_FIELDS = ("gender", "birth_certificate_number", "learner_upi", "allergies")  # #49a, optional
 
 
 def _new_anomaly_alert_count():
