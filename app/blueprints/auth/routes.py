@@ -306,12 +306,16 @@ def _complete_login(user, portal):
 PENDING_LOGIN_SESSION_KEY = "pending_staff_login"
 STAFF_LOGIN_OTP_CONTEXT = "staff_login"
 SECOND_STEP_ERROR = "That code didn't work. Check the SMS and try again."
+CODE_SEND_FAILED_ERROR = "We couldn't send your sign-in code. Try again in a moment."
 SECOND_STEP_RESTART = "Your sign-in code has expired or was used up. Sign in again."
 
 
 def _start_second_step(user, portal):
     session.clear()
-    otp_event = generate_otp(user, STAFF_LOGIN_OTP_CONTEXT, target_record_id=user.id)
+    try:
+        otp_event = generate_otp(user, STAFF_LOGIN_OTP_CONTEXT, target_record_id=user.id)
+    except Exception as error:  # noqa: BLE001 - any SMS failure: a clear message, never a 500
+        return _code_send_failed(user, error)
     session[PENDING_LOGIN_SESSION_KEY] = {"user_id": user.id, "otp_id": otp_event.id, "portal": portal}
     log_action(
         user_id=user.id,
@@ -323,6 +327,31 @@ def _start_second_step(user, portal):
     if request.is_json:
         return jsonify({"status": "code_required", "next": url_for("auth.login_verify")}), 202
     return redirect(url_for("auth.login_verify"))
+
+
+def _code_send_failed(user, error):
+    """The code could not be sent. Nothing is half-signed-in, the unsent code is made unusable,
+    and the failure is audited without the phone number or the code. It is not login_failed:
+    the password was right, so it must not count towards the lockout."""
+    db.session.rollback()
+    # generate_otp commits the row before sending, so this attempt's code is the newest one.
+    unsent = (OTPEvent.query.filter_by(user_id=user.id, action_context=STAFF_LOGIN_OTP_CONTEXT,
+                                       is_verified=False)
+              .order_by(OTPEvent.id.desc()).first())
+    if unsent is not None:
+        unsent.attempt_count = MAX_OTP_ATTEMPTS  # nobody received it, so nobody may use it
+    db.session.commit()
+    session.pop(PENDING_LOGIN_SESSION_KEY, None)
+    log_action(
+        user_id=user.id,
+        action="login_code_send_failed",
+        target_record_type="user",
+        target_record_id=user.id,
+        details=f"Sign-in code could not be sent ({type(error).__name__})",
+    )
+    if request.is_json:
+        return jsonify({"error": CODE_SEND_FAILED_ERROR}), 503
+    return render_template("auth/login.html", error=CODE_SEND_FAILED_ERROR), 503
 
 
 def _pending_login():

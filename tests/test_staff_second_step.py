@@ -277,3 +277,48 @@ def test_the_app_refuses_to_start_with_the_second_step_off_outside_testing(monke
     monkeypatch.setattr(BaseConfig, "FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
     with pytest.raises(RuntimeError, match="STAFF_SECOND_STEP_REQUIRED"):
         create_app("development")
+
+
+# --- SMS failure (batch 5 review) ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_a_failed_sms_gives_a_clear_message_not_a_crash(app, monkeypatch, as_json):
+    from app.services.sms_service import SmsDeliveryError
+
+    def broken(phone, message):
+        raise SmsDeliveryError("no_recipients")
+
+    monkeypatch.setattr("app.services.otp_service.send_sms", broken)
+    client = app.test_client()
+    data = {"email": "admin@example.com", "password": PASSWORD, "portal": "school"}
+    response = client.post("/login", json=data) if as_json else client.post("/login", data=data)
+    assert response.status_code == 503
+    text = response.get_data(as_text=True)
+    assert "couldn&#39;t send your sign-in code" in text or "couldn't send your sign-in code" in text
+    with client.session_transaction() as session:
+        assert "pending_staff_login" not in session
+    assert not is_signed_in(client)
+    assert actions(app, "login_code_send_failed") == 1
+    assert actions(app, "login_failed") == 0
+    assert actions(app, "login_code_sent") == 0
+    with app.app_context():
+        row = AuditLogEntry.query.filter_by(action="login_code_send_failed").one()
+        assert "+2547" not in row.details
+        otp = OTPEvent.query.one()
+        assert otp.attempt_count >= 5  # the unsent code can never be used
+    assert client.get("/login/verify").status_code == 302
+
+
+def test_repeated_sms_failures_never_lock_the_account(app, monkeypatch, sms):
+    def broken(phone, message):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr("app.services.otp_service.send_sms", broken)
+    client = app.test_client()
+    for _ in range(6):
+        assert password_step(client).status_code == 503
+    monkeypatch.setattr("app.services.otp_service.send_sms", lambda phone, message: sms.append((phone, message)))
+    assert password_step(client).status_code == 302
+    assert client.post("/login/verify", data={"code": last_code(sms)}).status_code == 302
+    assert is_signed_in(client)
