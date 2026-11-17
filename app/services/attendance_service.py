@@ -34,7 +34,7 @@ def class_children(school_class):
     """Children currently enrolled in the class, deleted records excluded."""
     return (ChildRecord.query.join(Enrolment, Enrolment.child_record_id == ChildRecord.id)
             .filter(Enrolment.class_id == school_class.id, Enrolment.ended_on.is_(None),
-                    ChildRecord.is_deleted.is_(False))
+                    ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False))
             .order_by(ChildRecord.id).all())
 
 

@@ -20,7 +20,7 @@ def attendance_trend(days=14, today=None):
             .join(AttendanceMark, AttendanceMark.register_id == AttendanceRegister.id)
             .join(ChildRecord, ChildRecord.id == AttendanceMark.child_record_id)
             .filter(AttendanceRegister.register_date >= start, AttendanceRegister.register_date <= today,
-                    ChildRecord.is_deleted.is_(False))
+                    ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False))
             .group_by(AttendanceRegister.register_date, AttendanceMark.status).all())
     for register_date, status, count in rows:
         trend[register_date][status] = count
@@ -36,7 +36,7 @@ def clinic_activity(weeks=4, now=None):
         week_start = this_monday - timedelta(weeks=offset)
         count = (ClinicVisit.query.join(ChildRecord, ChildRecord.id == ClinicVisit.child_record_id)
                  .filter(ClinicVisit.visited_at >= week_start, ClinicVisit.visited_at < week_start + timedelta(weeks=1),
-                         ChildRecord.institution_mode == "school", ChildRecord.is_deleted.is_(False))
+                         ChildRecord.institution_mode == "school", ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False))
                  .count())
         result.append((week_start.date(), count))
     return result

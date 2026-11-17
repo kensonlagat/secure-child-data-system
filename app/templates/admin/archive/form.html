@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Archive record | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator · record <span class="mono">#{{ record.id }}</span></p>
+    <h1>Archive {{ record.full_name }}</h1>
+    <p class="lead">Use this when the child leaves. The record becomes read-only and disappears from everyone's
+        lists; it is kept in the archive and can be restored. Nothing is deleted.</p>
+</section>
+
+<section class="panel">
+    <form method="post" action="{{ url_for('admin.archive_record', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="leave_reason"><span class="field-label">Reason for leaving</span>
+            <select id="leave_reason" name="leave_reason" required>{% for reason in reasons %}<option value="{{ reason }}">{{ reason.replace('_', ' ') | capitalize }}</option>{% endfor %}</select></label>
+        <label class="field-group" for="leave_date"><span class="field-label">Leave date</span>
+            <input id="leave_date" name="leave_date" type="date" required max="{{ today.isoformat() }}"></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Archive record</button></div>
+    </form>
+</section>
+{% endblock %}

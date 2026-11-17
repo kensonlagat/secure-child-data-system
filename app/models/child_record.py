@@ -50,6 +50,14 @@ class ChildRecord(db.Model):
     caseload_worker = db.relationship("User", foreign_keys=[caseload_worker_id])
     medical_notes = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key))
 
+    # Leaving, transfer and archiving (#64): an archived record is read-only, hidden from every
+    # day-to-day role, and kept (never hard-deleted). Only administrators archive and restore.
+    is_archived = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    archived_at = db.Column(db.DateTime)
+    archived_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+    leave_reason = db.Column(db.String(30))
+    leave_date = db.Column(db.Date)
+
     is_deleted = db.Column(db.Boolean, nullable=False, default=False)
     deleted_at = db.Column(db.DateTime)
 

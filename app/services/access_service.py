@@ -32,7 +32,7 @@ def _get_role_name(user):
 def get_accessible_records(user):
     """Return the scoped ChildRecord query for the supplied user."""
     role_name = _get_role_name(user)
-    base_query = ChildRecord.query.filter(ChildRecord.is_deleted.is_(False))
+    base_query = ChildRecord.query.filter(ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False))
 
     if role_name == "administrator":
         return base_query
@@ -88,6 +88,18 @@ def get_accessible_records(user):
         return _empty_records_query()
 
     return _empty_records_query()
+
+
+def get_archived_records(user):
+    """Archived (left) records, for the administrator archive view only (#64). Never deleted."""
+    if _get_role_name(user) != "administrator":
+        return _empty_records_query()
+    return ChildRecord.query.filter(ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(True))
+
+
+def can_archive_records(user):
+    """Archiving and restoring are administrator-only (#64)."""
+    return _get_role_name(user) == "administrator"
 
 
 def get_deleted_records(user):
@@ -160,6 +172,8 @@ def get_visible_fields(user):
 def get_writable_fields(user, record):
     """Return the ChildRecord fields this user may update for the given record."""
     role_name = _get_role_name(user)
+    if getattr(record, "is_archived", False):
+        return []  # archived records are read-only for every role (#64)
     if role_name == "administrator":
         # This is an allowlist: future columns are non-writable by default.
         # Excluded fields are institution_mode (role scopes), legal_status (two-person
@@ -249,7 +263,7 @@ def can_read_attendance(user, school_class):
 
 def _is_school_record(record):
     return (record is not None and getattr(record, "institution_mode", None) == "school"
-            and not getattr(record, "is_deleted", True))
+            and not getattr(record, "is_deleted", True) and not getattr(record, "is_archived", False))
 
 
 def can_manage_pickup(user, record):
@@ -283,7 +297,7 @@ def get_record_for_pickup(user, record_id):
     principals read pickup lists without having general record access (hard rule 2)."""
     record = ChildRecord.query.filter(
         ChildRecord.id == record_id,
-        ChildRecord.is_deleted.is_(False),
+        ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False),
         ChildRecord.institution_mode == "school",
     ).first()
     return record if can_view_pickup(user, record) else None
@@ -312,7 +326,7 @@ def can_read_clinic(user, record):
 
 def _is_home_record(record):
     return (record is not None and getattr(record, "institution_mode", None) == "childrens_home"
-            and not getattr(record, "is_deleted", True))
+            and not getattr(record, "is_deleted", True) and not getattr(record, "is_archived", False))
 
 
 def can_write_intake(user, record):
@@ -435,7 +449,7 @@ def get_record_for_missing_alert(user, record_id):
         return None
     return ChildRecord.query.filter(
         ChildRecord.id == record_id,
-        ChildRecord.is_deleted.is_(False),
+        ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False),
         ChildRecord.institution_mode == "childrens_home",
     ).first()
 
