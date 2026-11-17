@@ -132,6 +132,25 @@ def create_app(config_name="development"):
         return response
 
     @app.context_processor
+    def inject_photo_helpers():
+        from flask_login import current_user
+
+        def show_photo(record):
+            if not current_user.is_authenticated:
+                return False
+            from app.services.access_service import can_view_photo
+            from app.services.photo_service import current
+
+            return current(record.id) is not None and can_view_photo(current_user, record)
+
+        def may_upload_photo(record):
+            from app.services.access_service import can_upload_photo
+
+            return current_user.is_authenticated and can_upload_photo(current_user, record)
+
+        return {"show_photo": show_photo, "may_upload_photo": may_upload_photo}
+
+    @app.context_processor
     def inject_open_missing_alerts():
         """Open missing child alerts stay prominent for the home manager and administrators
         until resolved (#60). Only a count is exposed; no child details."""
@@ -205,6 +224,7 @@ def create_app(config_name="development"):
     from app.blueprints.home_overview.routes import home_overview_bp
     from app.blueprints.export.routes import export_bp
     from app.blueprints.documents.routes import documents_bp
+    from app.blueprints.photos.routes import photos_bp
     from app.blueprints.principal.routes import principal_bp
 
     app.register_blueprint(auth_bp)
@@ -228,6 +248,7 @@ def create_app(config_name="development"):
     app.register_blueprint(home_overview_bp, url_prefix="/home-manager")
     app.register_blueprint(export_bp, url_prefix="/export")
     app.register_blueprint(documents_bp, url_prefix="/documents")
+    app.register_blueprint(photos_bp, url_prefix="/photos")
     app.register_blueprint(principal_bp, url_prefix="/principal")
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
