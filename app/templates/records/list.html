@@ -110,6 +110,7 @@
                         {% else %}
                         <span class="badge">Read only</span>
                         {% endif %}
+                        <a class="action-link" href="{{ url_for('consent.consent_page', record_id=entry['record'].id) }}">Consent</a>
 
                         {% if current_user.role and current_user.role.name == 'administrator' %}
                         <button type="button" class="action-button danger" data-delete-record="{{ entry['record'].id }}"

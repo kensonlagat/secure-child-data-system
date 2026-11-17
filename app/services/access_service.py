@@ -186,3 +186,24 @@ def get_writable_fields(user, record):
         return ["medical_notes", "allergies"]
 
     return []
+
+
+# --- Consent (#63) ---------------------------------------------------------------------
+
+CONSENT_RECORDER_ROLES = {"administrator", "social_worker"}
+
+
+def can_view_consent_status(user, record):
+    """Anyone who can open the record sees its consent status (type, given or withdrawn, date)."""
+    return can_access_record(user, record)
+
+
+def can_record_consent(user, record):
+    """Administrators and social workers (their own caseload, via can_access_record) record
+    consent. Everyone else, fail closed."""
+    return _get_role_name(user) in CONSENT_RECORDER_ROLES and can_access_record(user, record)
+
+
+def can_view_consent_details(user, record):
+    """The guardian name and the full history are for the people who record consent."""
+    return can_record_consent(user, record)

@@ -10,6 +10,7 @@ from app.models.anomaly_alert import AnomalyAlert
 from app.models.otp_event import OTPEvent
 from app.models.legal_status_change_request import LegalStatusChangeRequest
 from app.models.school_class import ClassTeacherAssignment, Enrolment, SchoolClass
+from app.models.consent import ConsentRecord
 
 __all__ = [
 	"User",
@@ -22,4 +23,5 @@ __all__ = [
 	"SchoolClass",
 	"ClassTeacherAssignment",
 	"Enrolment",
+	"ConsentRecord",
 ]
