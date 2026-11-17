@@ -45,7 +45,12 @@ END $$;
 
 LOCK_FUNCTION = """
 CREATE OR REPLACE FUNCTION report_card_published_lock() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+-- Runs as its owner (cds_owner, who runs migrations), not the caller: with row-level security
+-- (#19) a caller who can't see a published card would otherwise find nothing and be let through.
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
 DECLARE card_id integer;
 BEGIN
     IF TG_TABLE_NAME = 'report_cards' THEN
