@@ -18,12 +18,11 @@ from sqlalchemy import func
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import db
-from app.models.audit_log import AuditLogEntry
 from app.models.child_record import ChildRecord
 from app.models.guardian_link import IDENTITY_DOCUMENT_TYPES, RELATIONSHIPS, GuardianLink
 from app.models.otp_event import OTPEvent
 from app.models.user import Role, User
-from app.services.audit_service import log_action
+from app.services.audit_service import audit_stats, log_action
 from app.services.key_derivation import keyed_hash
 from app.services.otp_service import generate_otp, verify_otp
 
@@ -61,11 +60,20 @@ def _active_parent(phone):
             .filter(User.login_phone == phone, Role.name == "parent_guardian", User.is_active.is_(True)).first())
     if user is None:
         return None
-    has_link = (GuardianLink.query.join(ChildRecord, ChildRecord.id == GuardianLink.child_record_id)
-                .filter(GuardianLink.guardian_user_id == user.id, GuardianLink.status == "active",
-                        ChildRecord.institution_mode == "school",  # same scope as access_service
-                        ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False)).first())
-    return user if has_link else None
+    return user if _has_active_school_link(user.id) else None
+
+
+def _has_active_school_link(user_id):
+    """Before sign-in the visitor is anonymous and, under row-level security (#19), can't read
+    links or child records. On PostgreSQL the SECURITY DEFINER function answers yes or no."""
+    from sqlalchemy import text
+
+    if db.session.get_bind().dialect.name == "postgresql":
+        return bool(db.session.execute(text("SELECT parent_has_active_link(:id)"), {"id": user_id}).scalar())
+    return (GuardianLink.query.join(ChildRecord, ChildRecord.id == GuardianLink.child_record_id)
+            .filter(GuardianLink.guardian_user_id == user_id, GuardianLink.status == "active",
+                    ChildRecord.institution_mode == "school",  # same scope as access_service
+                    ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False)).first()) is not None
 
 
 # --- Requesting a code ----------------------------------------------------------------------------
@@ -73,19 +81,15 @@ def _active_parent(phone):
 
 def _rate_limited(identifier, ip_address):
     since = datetime.utcnow() - RATE_WINDOW
-    requested = AuditLogEntry.query.filter(AuditLogEntry.action == "parent_login_code_requested",
-                                           AuditLogEntry.timestamp > since)
-    by_number = requested.filter(AuditLogEntry.attempted_identifier == identifier).count()
-    by_ip = requested.filter(AuditLogEntry.ip_address == ip_address).count() if ip_address else 0
+    by_number, _ = audit_stats("parent_login_code_requested", identifier=identifier, since=since)
+    by_ip = audit_stats("parent_login_code_requested", ip_address=ip_address, since=since)[0] if ip_address else 0
     return by_number >= SENDS_PER_NUMBER_PER_HOUR or by_ip >= SENDS_PER_IP_PER_HOUR
 
 
 def _audit_rate_limited(identifier):
     """Bounded: one row per identifier per window, however often the cap is hit."""
     since = datetime.utcnow() - RATE_WINDOW
-    if AuditLogEntry.query.filter(AuditLogEntry.action == "parent_login_rate_limited",
-                                  AuditLogEntry.attempted_identifier == identifier,
-                                  AuditLogEntry.timestamp > since).first() is None:
+    if audit_stats("parent_login_rate_limited", identifier=identifier, since=since)[0] == 0:
         log_action(attempted_identifier=identifier, action="parent_login_rate_limited",
                    details="Parent code request over the hourly limit; nothing sent")
 
@@ -126,16 +130,11 @@ def _locked_out(identifier, parent, ip_address):
     window_start = now - timedelta(minutes=current_app.config["LOGIN_LOCKOUT_MINUTES"])
     cutoff = window_start
     if parent is not None:
-        last = (AuditLogEntry.query.filter_by(user_id=parent.id, action="parent_login_succeeded")
-                .order_by(AuditLogEntry.timestamp.desc()).first())
-        if last is not None and last.timestamp:
-            cutoff = max(cutoff, last.timestamp)
-    failures = AuditLogEntry.query.filter(AuditLogEntry.action == "login_failed",
-                                          AuditLogEntry.attempted_identifier == identifier,
-                                          AuditLogEntry.timestamp > cutoff).count()
-    ip_failures = AuditLogEntry.query.filter(AuditLogEntry.action == "login_failed",
-                                             AuditLogEntry.ip_address == ip_address,
-                                             AuditLogEntry.timestamp > window_start).count() if ip_address else 0
+        _, last = audit_stats("parent_login_succeeded", user_id=parent.id)
+        if last:
+            cutoff = max(cutoff, last)
+    failures, _ = audit_stats("login_failed", identifier=identifier, since=cutoff)
+    ip_failures = audit_stats("login_failed", ip_address=ip_address, since=window_start)[0] if ip_address else 0
     return (failures >= current_app.config["LOGIN_MAX_FAILURES"]
             or ip_failures >= current_app.config["LOGIN_IP_MAX_FAILURES"])
 

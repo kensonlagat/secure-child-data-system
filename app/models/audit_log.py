@@ -18,6 +18,9 @@ from app import db
 
 class AuditLogEntry(db.Model):
     __tablename__ = "audit_log_entries"
+    # No INSERT ... RETURNING (#19): PostgreSQL applies the SELECT policy to returned rows, and
+    # only administrators may read audit rows. The id comes from the sequence first instead.
+    __table_args__ = {"implicit_returning": False}
 
     id = db.Column(db.Integer, primary_key=True)
 

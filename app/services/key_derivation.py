@@ -10,7 +10,7 @@ import hmac
 
 from flask import current_app
 
-SUBKEY_PURPOSES = frozenset({"audit-identifier", "change-phone-context"})
+SUBKEY_PURPOSES = frozenset({"audit-identifier", "change-phone-context", "rls-context"})
 _LABEL_PREFIX = "cds-subkey-v1|"  # bump the version to rotate every subkey at once
 
 

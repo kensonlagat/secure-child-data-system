@@ -12,10 +12,9 @@ from sqlalchemy import func
 
 from app import db
 from app.middleware.rbac import audit_access_denied, require_role
-from app.models.audit_log import AuditLogEntry
 from app.models.otp_event import OTPEvent
 from app.models.user import User
-from app.services.audit_service import log_action
+from app.services.audit_service import audit_stats, log_action
 from app.services.record_search import SEARCH_SESSION_KEY as RECORD_SEARCH_SESSION_KEY
 from app.services.key_derivation import keyed_hash
 from app.services.otp_service import MAX_OTP_ATTEMPTS, generate_otp, verify_otp
@@ -117,25 +116,15 @@ def _login_lockout_state(identifier, user, remote_addr):
     window_start = now - timedelta(minutes=current_app.config["LOGIN_LOCKOUT_MINUTES"])
     cutoff = window_start
 
+    # Counts only, through audit_stats(): under row-level security (#19) an anonymous visitor
+    # can't read audit rows, and doesn't need to.
     if user is not None:
-        latest_successful_login = (
-            AuditLogEntry.query.filter_by(user_id=user.id, action="login")
-            .order_by(AuditLogEntry.timestamp.desc(), AuditLogEntry.id.desc())
-            .first()
-        )
-        if latest_successful_login and latest_successful_login.timestamp:
-            cutoff = max(cutoff, latest_successful_login.timestamp)
+        _, latest_successful_login = audit_stats("login", user_id=user.id)
+        if latest_successful_login:
+            cutoff = max(cutoff, latest_successful_login)
 
-    email_failures = AuditLogEntry.query.filter(
-        AuditLogEntry.action == "login_failed",
-        AuditLogEntry.attempted_identifier == identifier,
-        AuditLogEntry.timestamp > cutoff,
-    ).count()
-    ip_failures = AuditLogEntry.query.filter(
-        AuditLogEntry.action == "login_failed",
-        AuditLogEntry.ip_address == remote_addr,
-        AuditLogEntry.timestamp > window_start,
-    ).count()
+    email_failures, _ = audit_stats("login_failed", identifier=identifier, since=cutoff)
+    ip_failures = audit_stats("login_failed", ip_address=remote_addr, since=window_start)[0] if remote_addr else 0
 
     return (
         email_failures >= current_app.config["LOGIN_MAX_FAILURES"]

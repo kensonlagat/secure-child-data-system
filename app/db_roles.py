@@ -39,6 +39,14 @@ COLUMN_UPDATE_TABLES = {
     "guardian_links": ("status", "verified_by", "verified_at", "revoked_by", "revoked_at"),
 }
 MIGRATION_TABLE = "alembic_version"
+# Row-level security (#19): the context key lives in an owner-only table the app role can't read.
+RLS_KEY_TABLE = "rls_context_key"
+OWNER_ONLY_TABLES = (MIGRATION_TABLE, RLS_KEY_TABLE)
+# SECURITY DEFINER helpers the app role may call. They return booleans or counts, never rows.
+RLS_APP_FUNCTIONS = ("app_context_valid()",
+                     "audit_stats(text, timestamp, integer, boolean, text, text, text, text, integer, boolean)",
+                     "parent_has_active_link(integer)")
+RLS_TABLES = ("child_records", "audit_log_entries", "guardian_links")
 PURGE_FUNCTION = "purge_synthetic_audit_entries()"
 
 
@@ -54,9 +62,13 @@ def _role_exists(cursor, name):
     return cursor.fetchone() is not None
 
 
-def _ensure_login_role(cursor, name, password):
-    """Create the role (or update its password) with no special privileges."""
-    attributes = sql.SQL("LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")
+def _ensure_login_role(cursor, name, password, bypass_rls=False):
+    """Create the role (or update its password) with no special privileges.
+
+    Only the owner role gets BYPASSRLS (#19): it runs migrations and pg_dump, and owns the
+    SECURITY DEFINER helpers that count audit rows. The app role never gets it."""
+    attributes = sql.SQL("LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION {}").format(
+        sql.SQL("BYPASSRLS" if bypass_rls else "NOBYPASSRLS"))
     if not _role_exists(cursor, name):
         if not password:
             raise ValueError(f"A password is required to create role {name}.")
@@ -75,7 +87,7 @@ def _ensure_login_role(cursor, name, password):
     return "updated"
 
 
-def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=None):
+def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=None, rls_key=None):
     """Create or update both roles and apply ownership and grants. Returns a list of steps."""
     owner_role = validate_role_name(owner_role)
     app_role = validate_role_name(app_role)
@@ -94,7 +106,8 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
                 cursor.execute("SELECT current_database()")
                 database = sql.Identifier(cursor.fetchone()[0])
 
-                steps.append(f"owner role {owner_role}: {_ensure_login_role(cursor, owner_role, owner_password)}")
+                steps.append(f"owner role {owner_role}: "
+                             f"{_ensure_login_role(cursor, owner_role, owner_password, bypass_rls=True)}")
                 steps.append(f"app role {app_role}: {_ensure_login_role(cursor, app_role, app_password)}")
 
                 # Database and schema: nobody else may connect or create objects.
@@ -116,8 +129,8 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
                 # App role: read, insert and update app tables; delete nothing.
                 cursor.execute(sql.SQL("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {}").format(app))
                 for table in tables:
-                    if table == MIGRATION_TABLE:
-                        continue  # the app never touches migration state
+                    if table in OWNER_ONLY_TABLES:
+                        continue  # the app never touches migration state or the RLS key
                     privileges = (
                         sql.SQL("SELECT, INSERT")
                         if table in APPEND_ONLY_TABLES or table in COLUMN_UPDATE_TABLES
@@ -153,6 +166,22 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
                     ).format(owner, app)
                 )
 
+                # Row-level security (#19): store the context key, own and grant the helpers.
+                cursor.execute("SELECT to_regclass(%s) IS NOT NULL", (f"public.{RLS_KEY_TABLE}",))
+                if cursor.fetchone()[0]:
+                    if rls_key is None:
+                        raise ValueError("The RLS context key is required once rls_context_key exists.")
+                    cursor.execute(
+                        sql.SQL("INSERT INTO public.{} (id, key) VALUES (1, %s) "
+                                "ON CONFLICT (id) DO UPDATE SET key = EXCLUDED.key").format(sql.Identifier(RLS_KEY_TABLE)),
+                        (psycopg2.Binary(rls_key),))
+                    for function in RLS_APP_FUNCTIONS:
+                        cursor.execute(sql.SQL(f"ALTER FUNCTION public.{function} OWNER TO {{}}").format(owner))
+                        cursor.execute(sql.SQL(f"REVOKE ALL ON FUNCTION public.{function} FROM PUBLIC"))
+                        cursor.execute(sql.SQL(f"GRANT EXECUTE ON FUNCTION public.{function} TO {{}}").format(app))
+                    steps.append(f"row-level security: context key stored in {RLS_KEY_TABLE} (owner only); "
+                                 f"{owner_role} has BYPASSRLS, {app_role} does not")
+
                 # Restricted purge path for synthetic audit rows.
                 cursor.execute("SELECT to_regprocedure(%s) IS NOT NULL", (f"public.{PURGE_FUNCTION}",))
                 if cursor.fetchone()[0]:
@@ -167,8 +196,11 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
     return steps
 
 
-def check_privileges(dsn):
-    """Connect as the configured app role and prove the restrictions. Returns (ok, lines)."""
+def check_privileges(dsn, signed_context=None):
+    """Connect as the configured app role and prove the restrictions. Returns (ok, lines).
+
+    signed_context: the settings of a valid signed `system` context (from app/rls.py), used to
+    prove that inserts work with a context and are refused without one (#19)."""
     lines, ok = [], True
     connection = psycopg2.connect(dsn)
     try:
@@ -218,13 +250,28 @@ def check_privileges(dsn):
                 connection.rollback()
             record(label, worked, should_have)
 
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass('public.rls_context_key') IS NOT NULL")
+            rls_installed = cursor.fetchone()[0]
+            connection.rollback()
+
+        def with_context(statement):
+            settings = "".join(
+                f"SELECT set_config({sql.Literal(name).as_string(connection)}, "
+                f"{sql.Literal(value).as_string(connection)}, true); "
+                for name, value in (signed_context or {}).items())
+            return settings + statement
+
         attempt("SELECT on audit_log_entries", "SELECT count(*) FROM audit_log_entries", True)
-        attempt(
-            "INSERT into audit_log_entries",
-            "INSERT INTO audit_log_entries (action, attempted_identifier, is_synthetic) "
-            "VALUES ('privilege_check', 'privilege-check', true)",
-            True,
-        )
+        insert_audit = ("INSERT INTO audit_log_entries (action, attempted_identifier, is_synthetic) "
+                        "VALUES ('privilege_check', 'privilege-check', true)")
+        if rls_installed:
+            attempt("INSERT into audit_log_entries without a signed context (row-level security)",
+                    insert_audit, False)
+            if signed_context:
+                attempt("INSERT into audit_log_entries with a signed context", with_context(insert_audit), True)
+        else:
+            attempt("INSERT into audit_log_entries", insert_audit, True)
         attempt("UPDATE on audit_log_entries", "UPDATE audit_log_entries SET details = details WHERE false", False)
         attempt("DELETE on audit_log_entries", "DELETE FROM audit_log_entries WHERE false", False)
         has_privilege("TRUNCATE on audit_log_entries", AUDIT_TABLE, "TRUNCATE", False)
@@ -263,6 +310,41 @@ def check_privileges(dsn):
                     allowed = cursor.fetchone()[0]
                     connection.rollback()
                 record(f"UPDATE on {table}.{column}", allowed, column in columns)
+        if rls_installed:
+            _check_rls(connection, record)
     finally:
         connection.close()
     return ok, lines
+
+
+def _check_rls(connection, record):
+    """Row-level security (#19): forced on every child data table and the audit log, nothing
+    visible without a valid context, the key unreadable, and no bypass for the app role."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT c.table_name FROM information_schema.columns c "
+            "JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
+            "WHERE c.table_schema = 'public' AND c.column_name = 'child_record_id' AND t.table_type = 'BASE TABLE' "
+            "AND c.table_name <> 'enrolments'")
+        tables = sorted(set(RLS_TABLES) | {row[0] for row in cursor.fetchall()})
+        for table in tables:
+            cursor.execute("SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                           "WHERE oid = to_regclass(%s)", (f"public.{table}",))
+            enabled, forced = cursor.fetchone()
+            record(f"skipping row-level security (ENABLE and FORCE) on {table}", not (enabled and forced), False)
+        cursor.execute("SELECT has_table_privilege(current_user, 'public.rls_context_key', 'SELECT')")
+        record("SELECT on rls_context_key", cursor.fetchone()[0], False)
+        cursor.execute("SELECT count(*) FROM child_records")
+        record("seeing child_records rows without a signed context", cursor.fetchone()[0] > 0, False)
+        cursor.execute("SELECT set_config('app.role', 'administrator', true), set_config('app.user_id', '1', true), "
+                       "set_config('app.mode', 'both', true), "
+                       "set_config('app.issued_at', extract(epoch from now())::bigint::text, true), "
+                       "set_config('app.context_sig', 'forged', true)")
+        cursor.execute("SELECT count(*) FROM child_records")
+        record("seeing child_records rows with a forged context", cursor.fetchone()[0] > 0, False)
+        connection.rollback()
+        cursor.execute("SELECT r.rolbypassrls FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner "
+                       "WHERE p.proname = 'app_context_valid'")
+        row = cursor.fetchone()
+        record("counting through the definer helpers (their owner has BYPASSRLS)", bool(row and row[0]), True)
+        connection.rollback()
