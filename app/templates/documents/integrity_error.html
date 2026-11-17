@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block title %}Document unavailable | Child Data System{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="notice error" role="alert">This document could not be opened because it failed its integrity check.
+        The problem has been recorded. Please contact an administrator.</div>
+    <p><a class="secondary-button" href="{{ url_for('documents.document_list', record_id=record.id) }}">Back to documents</a></p>
+</section>
+{% endblock %}
