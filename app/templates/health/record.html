@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Health record | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Health <span class="mono">#{{ record.id }}</span></p>
+    <h1>Health and medication</h1>
+    <p class="lead">Appointments, immunisations, medication schedules and who gave each dose. Health details are
+        encrypted at rest.</p>
+</section>
+
+{% if missed %}
+<div class="notice error" role="alert">{{ missed | length }} missed scheduled dose{{ '' if missed | length == 1 else 's' }} in the last 7 days.</div>
+{% endif %}
+
+<section class="panel" aria-labelledby="meds-title">
+    <h2 id="meds-title">Medication</h2>
+    {% for schedule in schedules %}
+    <article class="note-entry">
+        <p><strong>{{ schedule.medicine }}</strong> · {{ schedule.dose }} · at <span class="mono">{{ schedule.daily_times }}</span>
+            · from <span class="mono">{{ schedule.start_date.isoformat() }}</span>{% if schedule.end_date %} to <span class="mono">{{ schedule.end_date.isoformat() }}</span>{% endif %}
+            {% if not schedule.is_active %}<span class="status-pill status-dismissed">Stopped</span>{% endif %}</p>
+        {% if can_write and schedule.is_active %}
+        <div class="inline-form">
+            {% for due in todays_doses(schedule, now) %}
+            <form method="post" class="inline-form" action="{{ url_for('health.record_dose', schedule_id=schedule.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="scheduled_for" value="{{ due.isoformat() }}">
+                <span class="mono">{{ due.strftime('%H:%M') }}</span>
+                <label class="visually-hidden" for="outcome-{{ schedule.id }}-{{ loop.index }}">Outcome</label>
+                <select id="outcome-{{ schedule.id }}-{{ loop.index }}" name="outcome">{% for outcome in outcomes %}<option value="{{ outcome }}">{{ outcome | capitalize }}</option>{% endfor %}</select>
+                <button type="submit" class="secondary-button">Record</button>
+            </form>
+            {% endfor %}
+            <form method="post" class="inline-form" action="{{ url_for('health.stop_schedule', schedule_id=schedule.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="secondary-button">Stop schedule</button></form>
+        </div>
+        {% endif %}
+    </article>
+    {% else %}
+    <p class="muted">No medication scheduled.</p>
+    {% endfor %}
+    {% if can_write %}
+    <form method="post" action="{{ url_for('health.add_schedule', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="medicine"><span class="field-label">Medicine {{ ui.lock('medical_notes') }}</span>
+            <input id="medicine" name="medicine" required maxlength="120" autocomplete="off"></label>
+        <label class="field-group" for="dose"><span class="field-label">Dose {{ ui.lock('medical_notes') }}</span>
+            <input id="dose" name="dose" required maxlength="120" autocomplete="off"></label>
+        <label class="field-group" for="daily_times"><span class="field-label">Daily times (HH:MM, comma separated)</span>
+            <input id="daily_times" name="daily_times" required placeholder="08:00,20:00" autocomplete="off"></label>
+        <label class="field-group" for="start_date"><span class="field-label">Start date</span>
+            <input id="start_date" name="start_date" type="date" required></label>
+        <label class="field-group" for="end_date"><span class="field-label">End date (optional)</span>
+            <input id="end_date" name="end_date" type="date"></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Add schedule</button></div>
+    </form>
+    {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="log-title">
+    <h2 id="log-title">Administration log</h2>
+    {% if missed %}
+    <h3>Missed doses</h3>
+    <ul class="plain-list">{% for schedule, due in missed %}<li><span class="mono">{{ due.strftime('%Y-%m-%d %H:%M') }}</span> · {{ schedule.medicine }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% for entry in log %}
+    <p class="note-entry"><span class="mono">{{ entry.scheduled_for.strftime('%Y-%m-%d %H:%M') }}</span> · {{ entry.outcome | capitalize }} · {{ entry.recorder.full_name }}</p>
+    {% else %}
+    <p class="muted">No doses recorded yet.</p>
+    {% endfor %}
+</section>
+
+<section class="panel" aria-labelledby="entries-title">
+    <h2 id="entries-title">Appointments and immunisations</h2>
+    {% for entry in entries %}
+    <p class="note-entry"><span class="mono">{{ entry.entry_at.strftime('%Y-%m-%d %H:%M') }}</span> · {{ entry.entry_type | capitalize }} · {{ entry.details }}</p>
+    {% else %}
+    <p class="muted">Nothing recorded yet.</p>
+    {% endfor %}
+    {% if can_write %}
+    <form method="post" action="{{ url_for('health.add_entry', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="entry_type"><span class="field-label">Type</span>
+            <select id="entry_type" name="entry_type">{% for t in entry_types %}<option value="{{ t }}">{{ t | capitalize }}</option>{% endfor %}</select></label>
+        <label class="field-group" for="entry_at"><span class="field-label">Date and time</span>
+            <input id="entry_at" name="entry_at" type="datetime-local" required></label>
+        <label class="field-group" for="details"><span class="field-label">Details {{ ui.lock('medical_notes') }}</span>
+            <input id="details" name="details" required maxlength="1000" autocomplete="off"></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Add</button></div>
+    </form>
+    {% endif %}
+</section>
+{% endblock %}

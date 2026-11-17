@@ -369,3 +369,19 @@ def can_read_court(user, record):
     if role_name == "home_manager":
         return True
     return role_name == "social_worker" and getattr(record, "caseload_worker_id", None) == getattr(user, "id", None)
+
+
+# --- Health and medication (#57) -------------------------------------------------------------
+
+
+def can_write_health(user, record):
+    """Social workers (own caseload, via can_access_record) and administrators. Fail closed."""
+    return (_is_home_record(record) and _get_role_name(user) in {"social_worker", "administrator"}
+            and can_access_record(user, record))
+
+
+def can_read_health(user, record):
+    """Writers, plus the home manager (read only, including missed doses)."""
+    if can_write_health(user, record):
+        return True
+    return _is_home_record(record) and _get_role_name(user) == "home_manager" and can_access_record(user, record)

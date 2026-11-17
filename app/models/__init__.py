@@ -17,6 +17,7 @@ from app.models.clinic import ClinicVisit
 from app.models.intake import IntakeRecord
 from app.models.care_plan import CarePlanGoal, CaseNote
 from app.models.court import CourtHearing
+from app.models.health import HealthEntry, MedicationAdministration, MedicationSchedule
 
 __all__ = [
 	"User",
@@ -40,4 +41,7 @@ __all__ = [
 	"CarePlanGoal",
 	"CaseNote",
 	"CourtHearing",
+	"HealthEntry",
+	"MedicationSchedule",
+	"MedicationAdministration",
 ]
