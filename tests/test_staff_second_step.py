@@ -90,7 +90,7 @@ def test_password_sends_a_code_and_does_not_sign_in(app, sms):
 def test_skipping_the_second_step_by_going_straight_to_protected_urls_fails(app, sms):
     client = app.test_client()
     password_step(client)
-    for url in (PROTECTED, "/admin/users", "/school/records", "/admin/archive", "/admin/classes"):
+    for url in (PROTECTED, "/admin/users", "/school/records", "/audit/log", "/admin/archive", "/admin/classes"):
         response = client.get(url)
         assert response.status_code in (302, 401), url
         if response.status_code == 302:
