@@ -129,6 +129,28 @@ drawer). Without the key, the backups can't be restored; with only the key, they
    `flask setup-db-roles` (with `DB_SETUP_URL` set) and `flask check-db-privileges`, then start
    the app. Keep the old database until you are sure, then drop it.
 
+## Row-level security (#19)
+
+On PostgreSQL, child data tables and the audit log have row-level security with `FORCE`. Every
+transaction the app opens carries a short-lived context (user, role, mode), signed with a key
+derived from `SECRET_KEY` and bound to that database connection. The database checks the
+signature itself, so a query sees only the rows that user is allowed to see, even if a route
+forgets to filter. `cds_app` has no way to bypass this. `cds_owner` has `BYPASSRLS`, because
+migrations, `pg_dump` and the counting functions need every row, so `FORCE` changes little for
+the owner while it bypasses. The owner's password is used only for migrations and backups.
+
+- **Run `flask setup-db-roles` immediately after migrating** (with `DB_SETUP_URL` set). It writes
+  the signing key into the database and gives `cds_owner` `BYPASSRLS`. Until then the app sees no
+  child rows and can't write audit rows. It fails closed, but it is unusable, and `backup-db`
+  can't dump the protected tables yet. Then run `flask check-db-privileges`.
+- **Rerun `flask setup-db-roles` after any `SECRET_KEY` change.** The database copy of the key
+  must match the app's, or every query sees nothing.
+- **`TEST_POSTGRES_URL` must only ever point at a disposable database.** The PostgreSQL tests
+  drop and recreate its whole `public` schema. Never point it at the dev or live database.
+- Not covered: tables that aren't child data (`users`, `otp_events`, classes), and rules finer
+  than "which child" (for example, clinic notes hidden from teachers), which stay in
+  `app/services/access_service.py`.
+
 ## Git workflow
 
 ```bash

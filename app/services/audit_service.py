@@ -39,3 +39,47 @@ def log_action(
     db.session.add(entry)
     db.session.commit()
     return entry
+
+
+def audit_stats(action, *, since=None, user_id=None, user_is_null=False, identifier=None, ip_address=None,
+                details=None, target_type=None, target_id=None, target_is_null=False):
+    """Return (count, latest timestamp) of matching audit rows, without reading any row (#19).
+
+    Lockouts, bounded audit writes and rate limits need counts while the signed-in user (or an
+    anonymous visitor) can't SELECT audit rows under row-level security. On PostgreSQL this
+    calls the SECURITY DEFINER function audit_stats(), which returns only a count and a
+    timestamp. Elsewhere (the SQLite test database) it runs the same filters directly.
+    None means "don't filter on this"; *_is_null asks for rows where the column is NULL.
+    """
+    from sqlalchemy import func, text
+
+    if db.session.get_bind().dialect.name == "postgresql":
+        row = db.session.execute(
+            text("SELECT row_count, latest FROM audit_stats(:action, :since, :user_id, :user_null, :identifier, "
+                 ":ip, :details, :target_type, :target_id, :target_null)"),
+            {"action": action, "since": since, "user_id": user_id, "user_null": user_is_null,
+             "identifier": identifier, "ip": ip_address, "details": details, "target_type": target_type,
+             "target_id": target_id, "target_null": target_is_null}).one()
+        return int(row[0] or 0), row[1]
+    query = db.session.query(func.count(AuditLogEntry.id), func.max(AuditLogEntry.timestamp)).filter(
+        AuditLogEntry.action == action)
+    if since is not None:
+        query = query.filter(AuditLogEntry.timestamp > since)
+    if user_id is not None:
+        query = query.filter(AuditLogEntry.user_id == user_id)
+    if user_is_null:
+        query = query.filter(AuditLogEntry.user_id.is_(None))
+    if identifier is not None:
+        query = query.filter(AuditLogEntry.attempted_identifier == identifier)
+    if ip_address is not None:
+        query = query.filter(AuditLogEntry.ip_address == ip_address)
+    if details is not None:
+        query = query.filter(AuditLogEntry.details == details)
+    if target_type is not None:
+        query = query.filter(AuditLogEntry.target_record_type == target_type)
+    if target_id is not None:
+        query = query.filter(AuditLogEntry.target_record_id == target_id)
+    if target_is_null:
+        query = query.filter(AuditLogEntry.target_record_id.is_(None))
+    count, latest = query.one()
+    return int(count or 0), latest

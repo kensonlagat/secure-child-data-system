@@ -269,4 +269,9 @@ def create_app(config_name="development"):
     register_rbac_hooks(app)
     register_parent_guard(app)
 
+    # Row-level security context (#19): every PostgreSQL transaction carries a signed context.
+    from app.rls import register_rls_context
+
+    register_rls_context()
+
     return app

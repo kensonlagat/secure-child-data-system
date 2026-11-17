@@ -48,8 +48,7 @@ def audit_access_denied(
     failure here is swallowed: the caller's refusal must always happen.
     """
     from app import db
-    from app.models.audit_log import AuditLogEntry
-    from app.services.audit_service import log_action
+    from app.services.audit_service import audit_stats, log_action
 
     try:
         signed_in = current_user.is_authenticated
@@ -57,30 +56,18 @@ def audit_access_denied(
         window = timedelta(
             seconds=current_app.config.get("ACCESS_DENIED_AUDIT_WINDOW_SECONDS", 60)
         )
-        recent = AuditLogEntry.query.filter(
-            AuditLogEntry.action == action,
-            AuditLogEntry.details == details,
-            AuditLogEntry.target_record_type == target_record_type,
-            AuditLogEntry.timestamp > datetime.utcnow() - window,
-        )
+        # Counts only, through audit_stats() (#19): the actor may not be allowed to read audit rows.
+        since = datetime.utcnow() - window
+        actor = {"user_id": user_id} if signed_in else {"user_is_null": True}
+        per_target = {}
         if bound_per_target:
-            recent = recent.filter(
-                AuditLogEntry.target_record_id == target_record_id
-                if target_record_id is not None
-                else AuditLogEntry.target_record_id.is_(None)
-            )
-        recent = recent.filter(
-            AuditLogEntry.user_id == user_id if signed_in else AuditLogEntry.user_id.is_(None)
-        )
-        if recent.first() is not None:
+            per_target = {"target_id": target_record_id} if target_record_id is not None else {"target_is_null": True}
+        recent, _ = audit_stats(action, since=since, details=details, target_type=target_record_type,
+                                **per_target, **actor)
+        if recent:
             return
         if actor_cap is not None:
-            actor_rows = AuditLogEntry.query.filter(
-                AuditLogEntry.action == action,
-                AuditLogEntry.target_record_type == target_record_type,
-                AuditLogEntry.timestamp > datetime.utcnow() - window,
-                AuditLogEntry.user_id == user_id if signed_in else AuditLogEntry.user_id.is_(None),
-            ).count()
+            actor_rows, _ = audit_stats(action, since=since, target_type=target_record_type, **actor)
             if actor_rows >= actor_cap:
                 return  # the cap's worth of rows already shows the burst
         log_action(

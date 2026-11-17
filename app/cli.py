@@ -20,6 +20,7 @@ from app.models.user import Role, User
 from app.services.anomaly_scoring import score_recent_entries
 from app.services.anomaly_training import train_models_for_all_roles
 from app.services.audit_service import log_action
+from app.services.key_derivation import derive_subkey
 from app.services.enrolment_service import assign_teacher
 from app.services.synthetic_audit_data import generate_synthetic_history
 from app.services.sms_service import SmsDeliveryError, send_sms
@@ -406,6 +407,7 @@ def setup_db_roles_command(owner_role, app_role):
             app_role,
             owner_password=password_for("CDS_OWNER_PASSWORD", owner_role),
             app_password=password_for("CDS_APP_PASSWORD", app_role),
+            rls_key=derive_subkey("rls-context"),  # #19: stored owner-only, never printed
         )
     except (ValueError, PermissionError) as error:
         raise click.ClickException(str(error)) from None
@@ -420,7 +422,10 @@ def check_db_privileges_command():
 
     from app.db_roles import check_privileges
 
-    ok, lines = check_privileges(_libpq_dsn(current_app.config["SQLALCHEMY_DATABASE_URI"]))
+    from app.rls import context_values
+
+    ok, lines = check_privileges(_libpq_dsn(current_app.config["SQLALCHEMY_DATABASE_URI"]),
+                                 sign_context=lambda pid: context_values("", "system", "", pid=pid))
     for line in lines:
         click.echo(line)
     if not ok:
@@ -499,19 +504,56 @@ def decrypt_backup_command(backup_file):
     sys.stdout.buffer.flush()
 
 
+def _as_system(callback):
+    """Run a CLI command inside the signed `system` row-level security context (#19, D19.3).
+    This is the only way to get that context: web requests never pass through here."""
+    import functools
+
+    from app.rls import system_context
+
+    if getattr(callback, "_runs_as_system", False):
+        return callback  # create_app runs many times (tests); wrap once
+
+    @functools.wraps(callback)
+    def wrapped(*args, **kwargs):
+        from flask import has_app_context
+
+        if not has_app_context():
+            return callback(*args, **kwargs)  # no app, so no database: nothing to scope
+        with system_context():
+            return callback(*args, **kwargs)
+
+    wrapped._runs_as_system = True
+    return wrapped
+
+
 def register_cli_commands(app):
     """Attach project bootstrap CLI commands to the Flask app instance."""
+    seed_roles_command.callback = _as_system(seed_roles_command.callback)
     app.cli.add_command(seed_roles_command)
+    create_admin_command.callback = _as_system(create_admin_command.callback)
     app.cli.add_command(create_admin_command)
+    setup_db_roles_command.callback = _as_system(setup_db_roles_command.callback)
     app.cli.add_command(setup_db_roles_command)
+    check_db_privileges_command.callback = _as_system(check_db_privileges_command.callback)
     app.cli.add_command(check_db_privileges_command)
+    test_sms_command.callback = _as_system(test_sms_command.callback)
     app.cli.add_command(test_sms_command)
+    seed_synthetic_users_command.callback = _as_system(seed_synthetic_users_command.callback)
     app.cli.add_command(seed_synthetic_users_command)
+    generate_synthetic_audit_data_command.callback = _as_system(generate_synthetic_audit_data_command.callback)
     app.cli.add_command(generate_synthetic_audit_data_command)
+    clear_synthetic_audit_data_command.callback = _as_system(clear_synthetic_audit_data_command.callback)
     app.cli.add_command(clear_synthetic_audit_data_command)
+    train_anomaly_models_command.callback = _as_system(train_anomaly_models_command.callback)
     app.cli.add_command(train_anomaly_models_command)
+    score_anomalies_command.callback = _as_system(score_anomalies_command.callback)
     app.cli.add_command(score_anomalies_command)
+    create_backup_key_command.callback = _as_system(create_backup_key_command.callback)
     app.cli.add_command(create_backup_key_command)
+    backup_db_command.callback = _as_system(backup_db_command.callback)
     app.cli.add_command(backup_db_command)
+    restore_test_command.callback = _as_system(restore_test_command.callback)
     app.cli.add_command(restore_test_command)
+    decrypt_backup_command.callback = _as_system(decrypt_backup_command.callback)
     app.cli.add_command(decrypt_backup_command)
