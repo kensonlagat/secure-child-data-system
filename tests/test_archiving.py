@@ -144,7 +144,15 @@ def test_pickup_lookup_excludes_archived(app):
         assert access_service.get_record_for_pickup(user(app, "principal"), app.config["STAYING"]) is not None
 
 
+def resolve_open_alert(app):
+    with app.app_context():
+        alert = MissingChildAlert.query.filter_by(child_record_id=app.config["HOME_LEAVING"]).one()
+        alert.status, alert.found_at, alert.resolution_notes = "resolved", datetime.now(), "Found"
+        db.session.commit()
+
+
 def test_missing_alert_lookup_excludes_archived(app):
+    resolve_open_alert(app)  # archiving is refused while an alert is open
     archive(app, "HOME_LEAVING")
     with app.app_context():
         assert access_service.get_record_for_missing_alert(user(app, "social_worker"), app.config["HOME_LEAVING"]) is None
@@ -168,8 +176,24 @@ def test_principal_counts_exclude_archived(app):
         assert overview_service.clinic_activity()[-1][1] == 1
 
 
+def test_archiving_is_refused_while_a_missing_alert_is_open(app):
+    admin = sign_in(app, "administrator")
+    response = archive(app, "HOME_LEAVING", client=admin)
+    assert response.status_code == 302
+    with app.app_context():
+        assert db.session.get(ChildRecord, app.config["HOME_LEAVING"]).is_archived is False
+        assert AuditLogEntry.query.filter_by(action="record_archive_refused").count() == 1
+    page = admin.get(f"/admin/records/{app.config['HOME_LEAVING']}/archive")  # same session shows the message
+    assert "open missing alert" in page.get_data(as_text=True)
+    overview = " ".join(sign_in(app, "home_manager").get("/home-manager/overview").get_data(as_text=True).split())
+    assert '<dt>Open missing child alerts</dt><dd class="mono">1</dd>' in overview  # still on the manager's screen
+
+
 def test_home_manager_overview_excludes_archived(app):
+    resolve_open_alert(app)  # archiving is refused while the alert is open
     archive(app, "HOME_LEAVING")
+    with app.app_context():
+        assert db.session.get(ChildRecord, app.config["HOME_LEAVING"]).is_archived is True
     html = " ".join(sign_in(app, "home_manager").get("/home-manager/overview").get_data(as_text=True).split())
     assert '<dt>Children in the home</dt><dd class="mono">1</dd>' in html
     assert '<dt>Open missing child alerts</dt><dd class="mono">0</dd>' in html

@@ -67,6 +67,15 @@ def archive_record(record_id):
     if reason not in LEAVE_REASONS or leave_date is None or leave_date > date.today():
         flash("Choose a leave reason and a leave date that is not in the future.", "error")
         return redirect(url_for("admin.archive_form", record_id=record.id))
+    # Archiving hides a record everywhere, including the home manager's open-alert list, so a
+    # child who is still missing must never be archived: resolve the alert first.
+    from app.services.missing_service import open_alert
+
+    if open_alert(record.id) is not None:
+        log_action(user_id=current_user.id, action="record_archive_refused", target_record_type="child_record",
+                   target_record_id=record.id, details="Refused: the child has an open missing alert")
+        flash("This child has an open missing alert. Resolve the alert before archiving the record.", "error")
+        return redirect(url_for("admin.archive_form", record_id=record.id))
     record.is_archived, record.leave_reason, record.leave_date = True, reason, leave_date
     record.archived_by, record.archived_at = current_user.id, db.func.now()
     log_action(user_id=current_user.id, action="record_archived", target_record_type="child_record",
