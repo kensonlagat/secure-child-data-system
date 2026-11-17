@@ -220,3 +220,26 @@ def test_blob_and_document_grants_are_registered():
 
     assert "document_blobs" in APPEND_ONLY_TABLES
     assert COLUMN_UPDATE_TABLES["documents"] == ("is_deleted", "deleted_at")
+
+
+@pytest.mark.parametrize("fmt, content_type, expected", [("PNG", "image/png", ["PNG"]), ("JPEG", "image/jpeg", ["JPEG"])])
+def test_pillow_only_uses_the_detected_decoder(monkeypatch, fmt, content_type, expected):
+    seen = []
+    real_open = Image.open
+
+    def spy(fp, mode="r", formats=None):
+        seen.append(formats)
+        return real_open(fp, mode, formats=formats)
+
+    monkeypatch.setattr(Image, "open", spy)
+    out = io.BytesIO()
+    Image.new("RGB", (5, 5), "green").save(out, format=fmt)
+    document_service.reencode_image(out.getvalue(), content_type)
+    assert seen == [expected]
+
+
+def test_mismatched_content_is_refused_by_the_restricted_decoder():
+    out = io.BytesIO()
+    Image.new("RGB", (5, 5), "green").save(out, format="PNG")
+    with pytest.raises(document_service.DocumentError):
+        document_service.reencode_image(out.getvalue(), "image/jpeg")  # PNG bytes, JPEG decoder only

@@ -76,8 +76,11 @@ def reencode_image(data, content_type):
     from PIL import Image
 
     Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+    # Only the decoder for the type already detected from the file's first bytes: Pillow never
+    # falls back to trying another format.
+    formats = ["JPEG"] if content_type == "image/jpeg" else ["PNG"]
     try:
-        with Image.open(io.BytesIO(data)) as image:
+        with Image.open(io.BytesIO(data), formats=formats) as image:
             if image.width > MAX_IMAGE_SIDE or image.height > MAX_IMAGE_SIDE \
                     or image.width * image.height > MAX_IMAGE_PIXELS:
                 raise DocumentError("That image is too large.", "image_too_large")
