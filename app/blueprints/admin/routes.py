@@ -23,6 +23,7 @@ from app.models.otp_event import OTPEvent
 from app.models.school_class import SchoolClass
 from app.models.user import User
 from app.services.audit_service import log_action
+from app.services import intake_service
 from app.services.enrolment_service import EnrolmentError, enrol_child
 from app.services.record_validation import RecordValidationError, validate_record_updates
 from app.services.otp_service import generate_otp, verify_otp
@@ -243,6 +244,14 @@ def create_record():
         # so enrollment always starts with a fixed safe default instead of caller input.
         record.legal_status = "in_state_care"
 
+        # A child in a home can't be created without an intake record (#54).
+        try:
+            intake_values = intake_service.validate(payload)
+        except intake_service.IntakeError as error:
+            if request.is_json:
+                return jsonify({"error": f"Intake required: {error}"}), 400
+            return _render_create_record_form(f"Intake required: {error}"), 400
+
         caseload_worker_id = payload.get("caseload_worker_id")
         if caseload_worker_id is not None:
             try:
@@ -266,7 +275,10 @@ def create_record():
         if school_class is not None:
             # Same transaction as the insert (#48): if the enrolment fails, so does the record.
             enrol_child(current_user, record, school_class, audit=False)
-        # log_action() commits the record, its enrolment and this row together.
+        if institution_mode == "childrens_home":
+            # Same transaction as the insert (#54): no home record without its intake.
+            intake_service.create(current_user, record, intake_values, audit=False)
+        # log_action() commits the record, its enrolment or intake, and this row together.
         log_action(
             user_id=current_user.id,
             action="create_record",
@@ -282,6 +294,9 @@ def create_record():
     except Exception:
         db.session.rollback()
         raise
+    if institution_mode == "childrens_home":
+        log_action(user_id=current_user.id, action="intake_created", target_record_type="child_record",
+                   target_record_id=record.id, details="Created intake at admission")
     if school_class is not None:
         log_action(
             user_id=current_user.id,

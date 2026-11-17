@@ -79,6 +79,29 @@
             <span class="field-help">The child is enrolled in this class when the record is created. Its teachers can then see the record.</span>
         </label>
         {% else %}
+        <label class="field-group" for="referral_source">
+            <span class="field-label">Referral source (intake)</span>
+            <select id="referral_source" name="referral_source" required>
+                {% for source in ['childrens_officer', 'police', 'court', 'hospital', 'community', 'family', 'other'] %}
+                <option value="{{ source }}">{{ source.replace('_', ' ') | capitalize }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="field-group" for="admission_date">
+            <span class="field-label">Admission date (intake)</span>
+            <input id="admission_date" name="admission_date" type="date" required>
+        </label>
+        <label class="field-group" for="placement_reason">
+            <span class="field-label">Reason for placement (intake) {{ ui.lock('medical_notes') }}</span>
+            <textarea id="placement_reason" name="placement_reason" required maxlength="1000" rows="3"></textarea>
+        </label>
+        <label class="field-group" for="committal_order_reference">
+            <span class="field-label">Committal order reference (optional) {{ ui.lock('medical_notes') }}</span>
+            <input id="committal_order_reference" name="committal_order_reference" maxlength="60" autocomplete="off">
+        </label>
+        <label class="field-group" for="childrens_officer">
+            <span class="field-label">Assigned children's officer (optional) {{ ui.lock('medical_notes') }}</span>
+            <input id="childrens_officer" name="childrens_officer" maxlength="120" autocomplete="off">
+        </label>
         <label class="field-group">
             <span class="field-label">Caseload worker ID</span>
             <input type="number" name="caseload_worker_id" placeholder="Children's home only">

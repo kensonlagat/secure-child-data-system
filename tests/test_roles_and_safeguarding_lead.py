@@ -100,7 +100,7 @@ def flag(app, key):
 # --- New roles are fail-closed -------------------------------------------------
 
 
-@pytest.mark.parametrize("key", ["principal", "manager"])
+@pytest.mark.parametrize("key", ["principal"])
 def test_new_roles_get_no_records_or_fields(app, key):
     with app.app_context():
         user = db.session.get(User, app.config["IDS"][key])
@@ -111,10 +111,20 @@ def test_new_roles_get_no_records_or_fields(app, key):
             assert access_service.can_access_record(user, record) is False
 
 
+def test_home_manager_reads_home_records_but_writes_nothing(app):
+    """#54 gave the home manager read-only oversight of children's-home records."""
+    with app.app_context():
+        manager = db.session.get(User, app.config["IDS"]["manager"])
+        visible = {r.institution_mode for r in access_service.get_accessible_records(manager)}
+        assert visible == {"childrens_home"}
+        assert "medical_notes" not in access_service.get_visible_fields(manager)
+        for record in ChildRecord.query.all():
+            assert access_service.get_writable_fields(manager, record) == []
+
+
 @pytest.mark.parametrize(
     "email, portal, landing",
-    [("principal@example.com", "school", "/school/records"),
-     ("manager@example.com", "childrens_home", "/home-mode/records")],
+    [("principal@example.com", "school", "/school/records")],
 )
 def test_new_roles_sign_in_to_an_empty_safe_page(app, email, portal, landing):
     client = app.test_client()

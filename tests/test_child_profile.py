@@ -28,7 +28,7 @@ EXPECTED_VISIBLE = {
     "social_worker": {"gender", "birth_certificate_number", "allergies"},
     "legal_officer": {"birth_certificate_number"},
     "principal": set(),
-    "home_manager": set(),
+    "home_manager": {"gender"},  # read-only oversight from #54; no health or identity fields
     "parent_guardian": set(),
 }
 EXPECTED_WRITABLE_SCHOOL = {

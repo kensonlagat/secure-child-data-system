@@ -77,9 +77,14 @@ def get_accessible_records(user):
     if role_name == "parent_guardian":
         return _empty_records_query()
 
-    if role_name in {"principal", "home_manager"}:
-        # Oversight roles (#47) see no records until their overview features grant
-        # specific, read-only access (#53, #61). Explicit so the intent is reviewable.
+    if role_name == "home_manager":
+        # Read-only oversight of the children's home (#54 onwards). Writes nothing
+        # (get_writable_fields returns []), sees a reduced field set.
+        return base_query.filter(ChildRecord.institution_mode == "childrens_home")
+
+    if role_name == "principal":
+        # School oversight is aggregate-only (#53); principals read registers and pickup
+        # lists through their own access checks, never through general record access.
         return _empty_records_query()
 
     return _empty_records_query()
@@ -144,6 +149,10 @@ def get_visible_fields(user):
 
     if role_name == "legal_officer":
         return ["id", "full_name", "date_of_birth", "birth_certificate_number", "legal_status"]
+
+    if role_name == "home_manager":
+        # Oversight, not care: no medical notes, allergies or identity numbers.
+        return ["id", "full_name", "date_of_birth", "gender", "legal_status", "caseload_worker_id"]
 
     return []
 
@@ -296,3 +305,25 @@ def can_read_clinic(user, record):
     if can_record_clinic(user, record):
         return True
     return _get_role_name(user) == "administrator" and can_access_record(user, record)
+
+
+# --- Admission and intake (#54) -------------------------------------------------------------
+
+
+def _is_home_record(record):
+    return (record is not None and getattr(record, "institution_mode", None) == "childrens_home"
+            and not getattr(record, "is_deleted", True))
+
+
+def can_write_intake(user, record):
+    """Administrators (any home record) and social workers (own caseload). Fail closed."""
+    return (_is_home_record(record) and _get_role_name(user) in {"administrator", "social_worker"}
+            and can_access_record(user, record))
+
+
+def can_read_intake(user, record):
+    """Writers, plus legal officers and the home manager (read only)."""
+    if can_write_intake(user, record):
+        return True
+    return (_is_home_record(record) and _get_role_name(user) in {"legal_officer", "home_manager"}
+            and can_access_record(user, record))

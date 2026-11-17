@@ -182,6 +182,7 @@ def create_app(config_name="development"):
     from app.blueprints.attendance.routes import attendance_bp
     from app.blueprints.pickup.routes import pickup_bp
     from app.blueprints.clinic.routes import clinic_bp
+    from app.blueprints.intake.routes import intake_bp
     from app.blueprints.principal.routes import principal_bp
 
     app.register_blueprint(auth_bp)
@@ -195,6 +196,7 @@ def create_app(config_name="development"):
     app.register_blueprint(attendance_bp, url_prefix="/attendance")
     app.register_blueprint(pickup_bp, url_prefix="/pickup")
     app.register_blueprint(clinic_bp, url_prefix="/clinic")
+    app.register_blueprint(intake_bp, url_prefix="/intake")
     app.register_blueprint(principal_bp, url_prefix="/principal")
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
