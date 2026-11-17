@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Clinic log | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Clinic <span class="mono">#{{ record.id }}</span></p>
+    <h1>Clinic visits</h1>
+    <p class="lead">Clinical entries are encrypted at rest and can't be edited: add a new entry to correct one.</p>
+</section>
+
+{% if can_record %}
+<section class="panel" aria-labelledby="new-visit-title">
+    <h2 id="new-visit-title">Record a visit</h2>
+    <form method="post" action="{{ url_for('clinic.add_visit', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="visited_at"><span class="field-label">Date and time</span>
+            <input id="visited_at" name="visited_at" type="datetime-local"></label>
+        <label class="field-group" for="complaint"><span class="field-label">Complaint {{ ui.lock('medical_notes') }}</span>
+            <input id="complaint" name="complaint" required maxlength="500" autocomplete="off"></label>
+        <label class="field-group" for="treatment"><span class="field-label">Treatment {{ ui.lock('medical_notes') }}</span>
+            <input id="treatment" name="treatment" required maxlength="500" autocomplete="off"></label>
+        <label class="field-group" for="medicines_given"><span class="field-label">Medicines given {{ ui.lock('medical_notes') }}</span>
+            <input id="medicines_given" name="medicines_given" maxlength="300" autocomplete="off"></label>
+        <label class="field-group" for="follow_up"><span class="field-label">Follow-up {{ ui.lock('medical_notes') }}</span>
+            <input id="follow_up" name="follow_up" maxlength="300" autocomplete="off"></label>
+        <label class="field-group" for="immunisation"><span class="field-label">Immunisation {{ ui.lock('medical_notes') }}</span>
+            <input id="immunisation" name="immunisation" maxlength="200" autocomplete="off"></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Record visit</button></div>
+    </form>
+</section>
+{% endif %}
+
+<section class="panel" aria-labelledby="visits-title">
+    <h2 id="visits-title">{{ visits | length }} visit{{ '' if visits | length == 1 else 's' }}</h2>
+    {% if visits %}
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="visits-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">When</th><th scope="col">Complaint</th><th scope="col">Treatment</th>
+                    <th scope="col">Medicines</th><th scope="col">Follow-up</th><th scope="col">Immunisation</th>
+                    <th scope="col">Recorded by</th></tr></thead>
+            <tbody>
+                {% for visit in visits %}
+                <tr>
+                    <td class="mono">{{ visit.visited_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ visit.complaint }}</td>
+                    <td>{{ visit.treatment }}</td>
+                    <td>{{ visit.medicines_given or '' }}</td>
+                    <td>{{ visit.follow_up or '' }}</td>
+                    <td>{{ visit.immunisation or '' }}</td>
+                    <td>{{ visit.recorder.full_name }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">No visits recorded.</p>
+    {% endif %}
+</section>
+{% endblock %}

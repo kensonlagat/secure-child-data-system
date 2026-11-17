@@ -272,3 +272,21 @@ def get_record_for_pickup(user, record_id):
         ChildRecord.institution_mode == "school",
     ).first()
     return record if can_view_pickup(user, record) else None
+
+
+# --- Clinic visit log (#52) ----------------------------------------------------------------
+
+
+def can_record_clinic(user, record):
+    """Clinical officers record visits for school children in their scope. Fail closed."""
+    return (_get_role_name(user) == "school_nurse" and record is not None
+            and getattr(record, "institution_mode", None) == "school" and can_access_record(user, record))
+
+
+def can_read_clinic(user, record):
+    """Clinical officers and administrators read. Teachers and everyone else see nothing clinical."""
+    if record is None or getattr(record, "institution_mode", None) != "school":
+        return False
+    if can_record_clinic(user, record):
+        return True
+    return _get_role_name(user) == "administrator" and can_access_record(user, record)

@@ -13,6 +13,7 @@ from app.models.school_class import ClassTeacherAssignment, Enrolment, SchoolCla
 from app.models.consent import ConsentRecord
 from app.models.attendance import AbsenceAlert, AttendanceCorrection, AttendanceMark, AttendanceRegister
 from app.models.pickup import AuthorisedCollector
+from app.models.clinic import ClinicVisit
 
 __all__ = [
 	"User",
@@ -31,4 +32,5 @@ __all__ = [
 	"AttendanceCorrection",
 	"AbsenceAlert",
 	"AuthorisedCollector",
+	"ClinicVisit",
 ]
