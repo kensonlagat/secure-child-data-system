@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Placement | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Placement <span class="mono">#{{ record.id }}</span></p>
+    <h1>Placement, reintegration and aftercare</h1>
+    <p class="lead">Recording a placement does not change the child's legal status. Legal changes (for example for
+        adoption) go through the two-person legal status workflow.
+        <a href="{{ url_for('placement.due') }}">Follow-ups due</a>.</p>
+</section>
+
+<section class="panel" aria-labelledby="placements-title">
+    <h2 id="placements-title">Placements</h2>
+    {% for entry in placements %}
+    <article class="note-entry">
+        <p><span class="mono">{{ entry.exit_date.isoformat() }}</span> · <strong>{{ entry.outcome.replace('_', ' ') | capitalize }}</strong></p>
+        {% if entry.outcome in needs_legal %}<p class="notice info">This outcome usually needs a legal status change. Start
+            it through the legal status workflow; it is not changed here.</p>{% endif %}
+        {% if entry.destination_notes %}<p>{{ entry.destination_notes }}</p>{% endif %}
+        {% if can_write %}
+        <form method="post" class="inline-form" action="{{ url_for('placement.add_followup', placement_id=entry.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="visually-hidden" for="due-{{ entry.id }}">Follow-up date</label>
+            <input id="due-{{ entry.id }}" name="due_date" type="date" required>
+            <button type="submit" class="secondary-button">Schedule follow-up</button>
+        </form>
+        {% endif %}
+    </article>
+    {% else %}
+    <p class="muted">No placement recorded.</p>
+    {% endfor %}
+    {% if can_write %}
+    <form method="post" action="{{ url_for('placement.record_placement', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="outcome"><span class="field-label">Outcome</span>
+            <select id="outcome" name="outcome">{% for o in outcomes %}<option value="{{ o }}">{{ o.replace('_', ' ') | capitalize }}</option>{% endfor %}</select></label>
+        <label class="field-group" for="exit_date"><span class="field-label">Exit date</span>
+            <input id="exit_date" name="exit_date" type="date" required></label>
+        <label class="field-group" for="destination_notes"><span class="field-label">Destination notes {{ ui.lock('medical_notes') }}</span>
+            <textarea id="destination_notes" name="destination_notes" maxlength="1000" rows="3"></textarea></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Record placement</button></div>
+    </form>
+    {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="followups-title">
+    <h2 id="followups-title">Aftercare follow-ups</h2>
+    {% for followup in followups %}
+    <article class="note-entry">
+        <p><span class="mono">{{ followup.due_date.isoformat() }}</span>
+            {% if followup.completed_at %}<span class="status-pill status-approved">Done</span>
+            {% elif followup.is_overdue %}<span class="status-pill status-pending_otp">Overdue</span>
+            {% else %}<span class="status-pill status-new">Due</span>{% endif %}</p>
+        {% if followup.notes %}<p>{{ followup.notes }}</p>{% endif %}
+        {% if can_write and not followup.completed_at %}
+        <form method="post" class="inline-form" action="{{ url_for('placement.complete_followup', followup_id=followup.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="visually-hidden" for="notes-{{ followup.id }}">Notes</label>
+            <input id="notes-{{ followup.id }}" name="notes" maxlength="1000" placeholder="What was found" autocomplete="off">
+            <button type="submit" class="secondary-button">Mark done</button>
+        </form>
+        {% endif %}
+    </article>
+    {% else %}
+    <p class="muted">No follow-ups scheduled.</p>
+    {% endfor %}
+</section>
+{% endblock %}

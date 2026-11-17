@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Aftercare due | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Aftercare</p>
+    <h1>Follow-ups due</h1>
+    <p class="lead">Open follow-ups that are overdue or due in the next {{ days }} days, for the children you can see.</p>
+</section>
+
+<section class="panel" aria-labelledby="due-title">
+    <h2 id="due-title">{{ followups | length }} due</h2>
+    {% if followups %}
+    <ul class="plain-list">
+        {% for followup in followups %}
+        <li><span class="mono">{{ followup.due_date.isoformat() }}</span>{% if followup.is_overdue %} <span class="status-pill status-pending_otp">Overdue</span>{% endif %}
+            · <a href="{{ url_for('placement.placement_page', record_id=followup.placement.child_record_id) }}">Record <span class="mono">#{{ followup.placement.child_record_id }}</span></a></li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">Nothing due.</p>
+    {% endif %}
+</section>
+{% endblock %}
