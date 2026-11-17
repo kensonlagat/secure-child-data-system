@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% set public_layout = true %}
+
+{% block body_class %}auth-page{% endblock %}
+{% block public_portal %}neutral{% endblock %}
+
+{% block title %}Enter your sign-in code | Child Data System{% endblock %}
+
+{% block content %}
+<div class="auth-layout">
+    <section class="auth-intro">
+        <p class="eyebrow">Staff sign-in</p>
+        <h1>Check your phone</h1>
+        <p class="lead">We sent a 6-digit code to the phone number on your account. It expires in 5 minutes.
+            You are not signed in until you enter it.</p>
+    </section>
+
+    <section class="panel auth-card" aria-labelledby="verify-title">
+        <h2 id="verify-title" class="auth-card-title">Enter your code</h2>
+        {% if error %}
+        <div class="notice error" role="alert">{{ error }}</div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('auth.login_verify') }}" class="form-grid">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field-group" for="code">
+                <span class="field-label">Sign-in code</span>
+                <input id="code" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+                    autocomplete="one-time-code" autofocus>
+            </label>
+            <div class="form-actions">
+                <button type="submit" class="primary-button">Verify and sign in</button>
+            </div>
+            <p class="auth-links">
+                <a class="action-link" href="{{ url_for('auth.login') }}">Start again</a>
+            </p>
+        </form>
+    </section>
+</div>
+{% endblock %}

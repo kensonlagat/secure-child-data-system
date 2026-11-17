@@ -1,5 +1,6 @@
 """Authentication routes for Sprint 1 registration and login."""
 import re
+import secrets
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -10,14 +11,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy import func
 
 from app import db
-from app.middleware.rbac import require_role
+from app.middleware.rbac import audit_access_denied, require_role
 from app.models.audit_log import AuditLogEntry
 from app.models.otp_event import OTPEvent
 from app.models.user import User
 from app.services.audit_service import log_action
 from app.services.record_search import SEARCH_SESSION_KEY as RECORD_SEARCH_SESSION_KEY
 from app.services.key_derivation import keyed_hash
-from app.services.otp_service import generate_otp, verify_otp
+from app.services.otp_service import MAX_OTP_ATTEMPTS, generate_otp, verify_otp
 
 auth_bp = Blueprint("auth", __name__, template_folder="../../templates")
 
@@ -271,8 +272,20 @@ def login():
         )
         return _login_denied_response(PORTAL_MISMATCH_ERROR)
 
-    session.pop(RECORD_SEARCH_SESSION_KEY, None)  # a new sign-in starts with no search term (#32)
-    login_user(user)
+    if current_app.config.get("STAFF_SECOND_STEP_REQUIRED", True):
+        return _start_second_step(user, portal)
+    return _complete_login(user, portal)
+
+
+def _complete_login(user, portal):
+    """Sign the user in. Called only once every step has passed."""
+    # A fresh session: nothing from before sign-in (a half-signed-in marker, a search
+    # term, an old portal) carries over, and Flask-Login gets a new session identifier.
+    session.clear()
+    login_user(user, remember=False, fresh=True)
+    # The cookie session has no server-side id to rotate, so the whole cookie is rebuilt and a
+    # new random marker added: the signed-in cookie shares nothing with the half-signed-in one.
+    session["session_nonce"] = secrets.token_urlsafe(16)
     session[ACTIVE_PORTAL_SESSION_KEY] = portal
     log_action(
         user_id=user.id,
@@ -281,8 +294,136 @@ def login():
         target_record_id=user.id,
         details="Successful login",
     )
-
     return redirect(url_for(_landing_endpoint_for_user(user)))
+
+
+# --- Staff second sign-in step (#68) ---------------------------------------------------------
+# After the password verifies, the session holds only a half-signed-in marker: the user id
+# and the id of the one OTP row sent to that user. current_user stays anonymous, so every
+# protected route still refuses. The OTP row is the server-side state: once it verifies,
+# expires or runs out of attempts, the marker is useless, so replaying an old cookie fails.
+
+PENDING_LOGIN_SESSION_KEY = "pending_staff_login"
+STAFF_LOGIN_OTP_CONTEXT = "staff_login"
+SECOND_STEP_ERROR = "That code didn't work. Check the SMS and try again."
+CODE_SEND_FAILED_ERROR = "We couldn't send your sign-in code. Try again in a moment."
+SECOND_STEP_RESTART = "Your sign-in code has expired or was used up. Sign in again."
+
+
+def _start_second_step(user, portal):
+    session.clear()
+    try:
+        otp_event = generate_otp(user, STAFF_LOGIN_OTP_CONTEXT, target_record_id=user.id)
+    except Exception as error:  # noqa: BLE001 - any SMS failure: a clear message, never a 500
+        return _code_send_failed(user, error)
+    session[PENDING_LOGIN_SESSION_KEY] = {"user_id": user.id, "otp_id": otp_event.id, "portal": portal}
+    log_action(
+        user_id=user.id,
+        action="login_code_sent",
+        target_record_type="user",
+        target_record_id=user.id,
+        details="Password verified; sign-in code sent",
+    )
+    if request.is_json:
+        return jsonify({"status": "code_required", "next": url_for("auth.login_verify")}), 202
+    return redirect(url_for("auth.login_verify"))
+
+
+def _code_send_failed(user, error):
+    """The code could not be sent. Nothing is half-signed-in, the unsent code is made unusable,
+    and the failure is audited without the phone number or the code. It is not login_failed:
+    the password was right, so it must not count towards the lockout."""
+    db.session.rollback()
+    # generate_otp commits the row before sending, so this attempt's code is the newest one.
+    unsent = (OTPEvent.query.filter_by(user_id=user.id, action_context=STAFF_LOGIN_OTP_CONTEXT,
+                                       is_verified=False)
+              .order_by(OTPEvent.id.desc()).first())
+    if unsent is not None:
+        unsent.attempt_count = MAX_OTP_ATTEMPTS  # nobody received it, so nobody may use it
+    db.session.commit()
+    session.pop(PENDING_LOGIN_SESSION_KEY, None)
+    log_action(
+        user_id=user.id,
+        action="login_code_send_failed",
+        target_record_type="user",
+        target_record_id=user.id,
+        details=f"Sign-in code could not be sent ({type(error).__name__})",
+    )
+    if request.is_json:
+        return jsonify({"error": CODE_SEND_FAILED_ERROR}), 503
+    return render_template("auth/login.html", error=CODE_SEND_FAILED_ERROR), 503
+
+
+def _pending_login():
+    """Return (user, otp_event, portal) for a valid half-signed-in session, else None.
+
+    Every check is server-side: the OTP row must exist, belong to that user, be for staff
+    sign-in, and still be usable; the account must still be active and match the portal.
+    """
+    pending = session.get(PENDING_LOGIN_SESSION_KEY)
+    if not isinstance(pending, dict):
+        return None
+    user = db.session.get(User, pending.get("user_id")) if isinstance(pending.get("user_id"), int) else None
+    otp_event = db.session.get(OTPEvent, pending.get("otp_id")) if isinstance(pending.get("otp_id"), int) else None
+    portal = pending.get("portal")
+    if user is None or otp_event is None or portal not in VALID_PORTALS:
+        return None
+    if (otp_event.user_id != user.id or otp_event.action_context != STAFF_LOGIN_OTP_CONTEXT
+            or otp_event.target_record_id != user.id):
+        return None
+    if otp_event.is_verified or otp_event.is_expired() or otp_event.attempt_count >= MAX_OTP_ATTEMPTS:
+        return None
+    role_name = getattr(user.role, "name", None)
+    if not user.is_active or role_name == "parent_guardian":
+        return None
+    if not (role_name == "administrator" or getattr(user.role, "institution_mode", None) == portal):
+        return None
+    return user, otp_event, portal
+
+
+def _restart_login(message):
+    session.pop(PENDING_LOGIN_SESSION_KEY, None)
+    if request.is_json:
+        return jsonify({"error": message}), 401
+    flash(message, "error")
+    return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/login/verify", methods=["GET", "POST"])
+def login_verify():
+    """Second step: the code sent after the password. Only then is the session signed in."""
+    if current_user.is_authenticated:
+        return redirect(url_for(_landing_endpoint_for_user(current_user)))
+    pending = _pending_login()
+    if pending is None:
+        if session.get(PENDING_LOGIN_SESSION_KEY) is not None and request.method == "POST":
+            # Bounded: replaying a stale cookie over and over cannot flood the log.
+            audit_access_denied("Sign-in code submitted for a half-signed-in session that is no longer valid",
+                                status_code=401, target_record_type="login", action="login_code_rejected",
+                                bound_per_target=False)
+        return _restart_login(SECOND_STEP_RESTART)
+    user, otp_event, portal = pending
+    if request.method == "GET":
+        return render_template("auth/login_verify.html")
+
+    identifier = _audit_identifier(user.email.lower(), user)
+    if _login_lockout_state(identifier, user, request.remote_addr):
+        log_action(user_id=user.id, action="login_blocked", target_record_type="user", target_record_id=user.id,
+                   details="Sign-in code blocked by lockout policy", attempted_identifier=identifier)
+        return _restart_login(GENERIC_LOGIN_ERROR)
+
+    raw_code = _request_payload().get("code")
+    code = raw_code.strip() if isinstance(raw_code, str) else ""
+    if verify_otp(otp_event, code):
+        return _complete_login(user, portal)
+
+    # A wrong code counts towards the same lockout as a wrong password.
+    _log_login_failure(identifier, user, "Failed login attempt with an invalid sign-in code")
+    if _pending_login() is None or _login_lockout_state(identifier, user, request.remote_addr):
+        return _restart_login(SECOND_STEP_RESTART)
+    if request.is_json:
+        return jsonify({"error": SECOND_STEP_ERROR}), 401
+    return render_template("auth/login_verify.html", error=SECOND_STEP_ERROR), 401
 
 
 @auth_bp.route("/logout")
@@ -290,6 +431,7 @@ def logout():
     """Terminate the current login session and return to login."""
     logout_user()
     session.pop(ACTIVE_PORTAL_SESSION_KEY, None)
+    session.pop(PENDING_LOGIN_SESSION_KEY, None)
     session.pop(RECORD_SEARCH_SESSION_KEY, None)  # search terms never outlive the sign-in (#32)
     return redirect(url_for("auth.login"))
 
