@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Archive | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Archive</h1>
+    <p class="lead">Records of children who have left. They are read-only, hidden from day-to-day roles and never
+        deleted. Each is kept at least {{ years }} years after the leave date.</p>
+</section>
+
+<section class="panel" aria-labelledby="archive-title">
+    <h2 id="archive-title">{{ records | length }} archived</h2>
+    {% if records %}
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="archive-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Record</th><th scope="col">Name</th><th scope="col">Mode</th><th scope="col">Left</th>
+                    <th scope="col">Reason</th><th scope="col">Keep until</th><th scope="col">Restore</th></tr></thead>
+            <tbody>
+                {% for record in records %}
+                <tr>
+                    <td class="mono">#{{ record.id }}</td>
+                    <td>{{ record.full_name }}</td>
+                    <td>{{ record.institution_mode.replace('_', ' ') }}</td>
+                    <td class="mono">{{ record.leave_date.isoformat() if record.leave_date else '' }}</td>
+                    <td>{{ (record.leave_reason or '').replace('_', ' ') | capitalize }}</td>
+                    <td class="mono">{{ retain_until(record).isoformat() }}</td>
+                    <td><form method="post" class="inline-form" action="{{ url_for('admin.restore_record', record_id=record.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="secondary-button">Restore</button></form></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">Nothing archived.</p>
+    {% endif %}
+</section>
+{% endblock %}

@@ -528,3 +528,4 @@ def confirm_safeguarding_lead_change(user_id):
 # User management routes live in their own module and register on admin_bp.
 from app.blueprints.admin import user_routes  # noqa: E402,F401
 from app.blueprints.admin import class_routes  # noqa: E402,F401
+from app.blueprints.admin import archive_routes  # noqa: E402,F401
