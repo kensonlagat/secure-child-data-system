@@ -63,6 +63,7 @@ def _active_parent(phone):
         return None
     has_link = (GuardianLink.query.join(ChildRecord, ChildRecord.id == GuardianLink.child_record_id)
                 .filter(GuardianLink.guardian_user_id == user.id, GuardianLink.status == "active",
+                        ChildRecord.institution_mode == "school",  # same scope as access_service
                         ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False)).first())
     return user if has_link else None
 

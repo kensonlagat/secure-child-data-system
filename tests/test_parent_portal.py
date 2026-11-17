@@ -363,3 +363,12 @@ def test_csrf_is_enforced_on_parent_sign_in(app, sms):
     assert sms == []
     assert count(app, "parent_login_code_requested") == 0
     assert client.get("/parent/").status_code in (302, 401)
+
+
+def test_a_parent_linked_only_to_a_childrens_home_child_gets_no_code(app, sms):
+    with app.app_context():
+        link = GuardianLink.query.filter_by(child_record_id=app.config["KIDS"]["A"]).one()
+        link.status = "revoked"
+        db.session.commit()  # the parent's only active link left is to child H (children's home)
+    app.test_client().post("/parent/login", data={"phone": PARENT_PHONE})
+    assert codes_for(sms, PARENT_PHONE) == []
