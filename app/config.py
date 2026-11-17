@@ -27,6 +27,8 @@ class BaseConfig:
     # On top of the per-record bound: at most this many record-level access_denied rows per
     # user in each window, so cycling through many forbidden records cannot flood the log.
     ACCESS_DENIED_RECORD_CAP_PER_WINDOW = 20
+    # CSRF failures (#101) use the same writer and window, with this per-user cap.
+    CSRF_FAILURE_AUDIT_CAP_PER_WINDOW = 20
 
     # Attendance (#50): this many absences within the window send one guardian SMS.
     ATTENDANCE_ABSENCE_THRESHOLD = 3

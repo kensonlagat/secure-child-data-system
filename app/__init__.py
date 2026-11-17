@@ -85,12 +85,17 @@ def create_app(config_name="development"):
         from flask_login import current_user
 
         if current_user.is_authenticated:
-            from app.services.audit_service import log_action
+            from app.middleware.rbac import audit_access_denied
 
-            log_action(
-                user_id=current_user.id,
+            # Bounded like access_denied (#101): one row per user and endpoint per window, and
+            # at most CSRF_FAILURE_AUDIT_CAP_PER_WINDOW per user across endpoints. Keyed on the
+            # endpoint, not the path, so cycling record ids in the URL can't lift the bound.
+            # Never blocks the refusal below.
+            audit_access_denied(
+                f"CSRF validation failed for endpoint {request.endpoint or 'unknown'}",
+                status_code=400,
                 action="csrf_failure",
-                details=f"CSRF validation failed for {request.path}",
+                actor_cap=app.config.get("CSRF_FAILURE_AUDIT_CAP_PER_WINDOW", 20),
             )
 
         if request.is_json:
