@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}School overview | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Principal</p>
+    <h1>School overview</h1>
+    <p class="lead">Counts and trends only. Individual records, clinical notes and safeguarding details are not shown
+        here.</p>
+</section>
+
+<section class="panel" aria-labelledby="attendance-title">
+    <h2 id="attendance-title">Attendance, last 14 days</h2>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="attendance-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Date</th><th scope="col">Present</th><th scope="col">Late</th>
+                    <th scope="col">Absent</th><th scope="col">Excused</th><th scope="col">Marked</th></tr></thead>
+            <tbody>
+                {% for day, counts in trend.items() %}
+                {% set total = counts.values() | sum %}
+                <tr>
+                    <td class="mono">{{ day.isoformat() }}</td>
+                    <td class="mono">{{ counts.present }}</td>
+                    <td class="mono">{{ counts.late }}</td>
+                    <td class="mono">{{ counts.absent }}</td>
+                    <td class="mono">{{ counts.excused }}</td>
+                    <td><span class="overview-bar" style="--bar: {{ (100 * total / peak) | round | int }}%"
+                            aria-hidden="true"></span> <span class="mono">{{ total }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel" aria-labelledby="clinic-title">
+    <h2 id="clinic-title">Clinic activity, last 4 weeks</h2>
+    <ul class="plain-list">
+        {% for week_start, count in clinic %}
+        <li>Week of <span class="mono">{{ week_start.isoformat() }}</span>: <strong>{{ count }}</strong>
+            visit{{ '' if count == 1 else 's' }}</li>
+        {% endfor %}
+    </ul>
+</section>
+
+<section class="panel" aria-labelledby="concerns-title">
+    <h2 id="concerns-title">Open safeguarding concerns</h2>
+    {% if open_concerns is none %}
+    <p class="muted">Available once safeguarding concern reporting is live.</p>
+    {% else %}
+    <p><strong>{{ open_concerns }}</strong> open</p>
+    {% endif %}
+</section>
+{% endblock %}

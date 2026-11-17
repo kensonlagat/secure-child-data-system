@@ -1303,3 +1303,14 @@ body.portal-locked .auth-card .primary-button:hover {
     gap: var(--space-3);
     margin-top: var(--space-4);
 }
+
+/* Principal overview bars (#53) */
+.overview-bar {
+    display: inline-block;
+    width: calc(var(--bar, 0%) * 0.6);
+    max-width: 60%;
+    height: 0.6rem;
+    border-radius: 999px;
+    background: var(--info);
+    vertical-align: middle;
+}
