@@ -111,6 +111,7 @@
                         <span class="badge">Read only</span>
                         {% endif %}
                         <a class="action-link" href="{{ url_for('consent.consent_page', record_id=entry['record'].id) }}">Consent</a>
+                        {% if current_user.role and current_user.role.name in ['administrator', 'school_nurse', 'social_worker', 'legal_officer'] %}<a class="action-link" href="{{ url_for('documents.document_list', record_id=entry['record'].id) }}">Documents</a>{% endif %}
                         {% if page_mode == 'school' %}<a class="action-link" href="{{ url_for('pickup.collectors', record_id=entry['record'].id) }}">Pickup</a>{% endif %}
                         {% if page_mode == 'childrens_home' %}<a class="action-link" href="{{ url_for('intake.intake_page', record_id=entry['record'].id) }}">Intake</a>{% endif %}
                         {% if page_mode == 'childrens_home' and current_user.role and current_user.role.name in ['social_worker', 'home_manager', 'legal_officer'] %}<a class="action-link" href="{{ url_for('care.care_page', record_id=entry['record'].id) }}">Care plan</a>{% endif %}

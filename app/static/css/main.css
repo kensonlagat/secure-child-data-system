@@ -1336,3 +1336,11 @@ body.portal-locked .auth-card .primary-button:hover {
     border-top: 1px solid var(--line);
     padding: var(--space-3) 0;
 }
+
+/* Child photo on the record page (#87) */
+.record-photo {
+    display: block;
+    max-width: 160px;
+    border-radius: var(--radius-md);
+    margin-top: var(--space-3);
+}

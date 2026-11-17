@@ -12,6 +12,18 @@
     <p class="eyebrow">Edit record <span class="mono">#{{ record.id }}</span></p>
     <h1>{{ page_heading }}</h1>
     <p class="lead">{{ page_subtitle }}</p>
+    {# The record page is the only place a photo appears (#87), and only with photo consent. #}
+    {% if show_photo(record) %}
+    <img class="record-photo" src="{{ url_for('photos.photo', record_id=record.id) }}" alt="Photo of the child" width="160">
+    {% endif %}
+    {% if may_upload_photo(record) %}
+    <form method="post" enctype="multipart/form-data" class="inline-form" action="{{ url_for('photos.upload', record_id=record.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="visually-hidden" for="photo">Photo</label>
+        <input id="photo" name="photo" type="file" accept=".jpg,.jpeg,.png">
+        <button type="submit" class="secondary-button">Upload photo</button>
+    </form>
+    {% endif %}
 </section>
 
 <section class="panel" aria-labelledby="edit-form-title">
