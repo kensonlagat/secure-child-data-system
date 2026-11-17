@@ -468,3 +468,38 @@ def can_view_missing_alert_details(user, alert):
 def can_resolve_missing_alert(user):
     """The home manager and administrators resolve alerts."""
     return _get_role_name(user) in {"home_manager", "administrator"}
+
+
+# --- Encrypted documents (#66) -----------------------------------------------------------------
+# The confirmed type table (design note on #66). Record scope still comes from
+# can_access_record, so a social worker only reaches their own caseload, a clinical officer only
+# school records and a legal officer only children's-home records.
+DOCUMENT_RULES = {
+    "birth_certificate": {"modes": {"school", "childrens_home"}, "upload": {"administrator"},
+                          "view": {"administrator", "social_worker", "legal_officer"}},
+    "court_order": {"modes": {"childrens_home"}, "upload": {"administrator", "legal_officer"},
+                    "view": {"administrator", "legal_officer", "social_worker"}},
+    "medical_report": {"modes": {"school", "childrens_home"},
+                       "upload": {"administrator", "school_nurse", "social_worker"},
+                       "view": {"administrator", "school_nurse", "social_worker"}},
+}
+
+
+def _document_allowed(user, record, document_type, action):
+    rule = DOCUMENT_RULES.get(document_type)
+    if rule is None or record is None or getattr(record, "institution_mode", None) not in rule["modes"]:
+        return False
+    return _get_role_name(user) in rule[action] and can_access_record(user, record)
+
+
+def can_upload_document(user, record, document_type):
+    return _document_allowed(user, record, document_type, "upload")
+
+
+def can_view_document(user, record, document_type):
+    return _document_allowed(user, record, document_type, "view")
+
+
+def can_delete_document(user):
+    """Soft deletion is administrator-only and OTP-gated (hard rule 4 applied to documents)."""
+    return _get_role_name(user) == "administrator"

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Documents | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Documents <span class="mono">#{{ record.id }}</span></p>
+    <h1>Documents</h1>
+    <p class="lead">Files are encrypted before they are stored and can't be changed once uploaded. Downloads are
+        recorded in the audit log.</p>
+</section>
+
+<section class="panel" aria-labelledby="docs-title">
+    <h2 id="docs-title">{{ documents | length }} document{{ '' if documents | length == 1 else 's' }}</h2>
+    {% for document in documents %}
+    <p class="note-entry"><span class="mono">{{ document.uploaded_at.strftime('%Y-%m-%d') }}</span> ·
+        {{ document.document_type.replace('_', ' ') | capitalize }} ·
+        <a href="{{ url_for('documents.download', document_id=document.id) }}">Download</a>
+        {% if can_delete %}
+        <form method="post" class="inline-form" action="{{ url_for('documents.request_delete', document_id=document.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="secondary-button">Delete…</button></form>
+        {% endif %}</p>
+    {% else %}
+    <p class="muted">No documents you can see.</p>
+    {% endfor %}
+</section>
+
+{% if upload_types %}
+<section class="panel" aria-labelledby="upload-title">
+    <h2 id="upload-title">Upload</h2>
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('documents.upload', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="document_type"><span class="field-label">Type</span>
+            <select id="document_type" name="document_type">{% for t in upload_types %}<option value="{{ t }}">{{ t.replace('_', ' ') | capitalize }}</option>{% endfor %}</select></label>
+        <label class="field-group" for="file"><span class="field-label">File (PDF, JPEG or PNG, up to 10 MB)</span>
+            <input id="file" name="file" type="file" accept=".pdf,.jpg,.jpeg,.png" required></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Upload</button></div>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

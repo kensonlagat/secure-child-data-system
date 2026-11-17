@@ -204,6 +204,7 @@ def create_app(config_name="development"):
     from app.blueprints.missing.routes import missing_bp
     from app.blueprints.home_overview.routes import home_overview_bp
     from app.blueprints.export.routes import export_bp
+    from app.blueprints.documents.routes import documents_bp
     from app.blueprints.principal.routes import principal_bp
 
     app.register_blueprint(auth_bp)
@@ -226,6 +227,7 @@ def create_app(config_name="development"):
     app.register_blueprint(missing_bp, url_prefix="/missing")
     app.register_blueprint(home_overview_bp, url_prefix="/home-manager")
     app.register_blueprint(export_bp, url_prefix="/export")
+    app.register_blueprint(documents_bp, url_prefix="/documents")
     app.register_blueprint(principal_bp, url_prefix="/principal")
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
