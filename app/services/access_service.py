@@ -349,3 +349,23 @@ def can_read_care_plan(user, record):
 def can_read_legal_summaries(user, record):
     """Legal officers see only the legal summaries of case notes, never goals or note bodies."""
     return _is_home_record(record) and _get_role_name(user) == "legal_officer" and can_access_record(user, record)
+
+
+# --- Court dates (#56) -----------------------------------------------------------------------
+
+
+def can_manage_court(user, record):
+    """Legal officers manage hearings for children's-home records. Fail closed."""
+    return _is_home_record(record) and _get_role_name(user) == "legal_officer" and can_access_record(user, record)
+
+
+def can_read_court(user, record):
+    """Managers, plus the home manager and the assigned social worker (read only)."""
+    if can_manage_court(user, record):
+        return True
+    if not _is_home_record(record) or not can_access_record(user, record):
+        return False
+    role_name = _get_role_name(user)
+    if role_name == "home_manager":
+        return True
+    return role_name == "social_worker" and getattr(record, "caseload_worker_id", None) == getattr(user, "id", None)

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Court dates | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Court <span class="mono">#{{ record.id }}</span></p>
+    <h1>Court dates</h1>
+    <p class="lead">Hearings, outcomes and next dates. <a href="{{ url_for('court.upcoming') }}">All upcoming hearings</a>.</p>
+</section>
+
+{% if upcoming %}
+<div class="notice warning" role="status">{{ upcoming | length }} hearing{{ '' if upcoming | length == 1 else 's' }} in the
+    next 14 days. Next: <span class="mono">{{ upcoming[0].hearing_at.strftime('%Y-%m-%d %H:%M') }}</span> at {{ upcoming[0].court }}.</div>
+{% endif %}
+
+<section class="panel" aria-labelledby="hearings-title">
+    <h2 id="hearings-title">{{ hearings | length }} hearing{{ '' if hearings | length == 1 else 's' }}</h2>
+    {% for hearing in hearings %}
+    <article class="note-entry">
+        <p><strong class="mono">{{ hearing.hearing_at.strftime('%Y-%m-%d %H:%M') }}</strong> · {{ hearing.court }} ·
+            case <span class="mono">{{ hearing.case_reference }}</span>{% if hearing.next_date %} · next <span class="mono">{{ hearing.next_date.isoformat() }}</span>{% endif %}</p>
+        {% if hearing.outcome %}<p>Outcome: {{ hearing.outcome }}</p>{% endif %}
+        {% if can_manage %}
+        <form method="post" class="form-grid two-col" action="{{ url_for('court.update_hearing', hearing_id=hearing.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="court" value="{{ hearing.court }}">
+            <input type="hidden" name="case_reference" value="{{ hearing.case_reference }}">
+            <input type="hidden" name="hearing_at" value="{{ hearing.hearing_at.strftime('%Y-%m-%dT%H:%M') }}">
+            <label class="field-group" for="outcome-{{ hearing.id }}"><span class="field-label">Outcome {{ ui.lock('medical_notes') }}</span>
+                <input id="outcome-{{ hearing.id }}" name="outcome" maxlength="1000" value="{{ hearing.outcome or '' }}" autocomplete="off"></label>
+            <label class="field-group" for="next-{{ hearing.id }}"><span class="field-label">Next date</span>
+                <input id="next-{{ hearing.id }}" name="next_date" type="date" value="{{ hearing.next_date.isoformat() if hearing.next_date else '' }}"></label>
+            <div class="form-actions"><button type="submit" class="secondary-button">Save outcome</button></div>
+        </form>
+        {% endif %}
+    </article>
+    {% else %}
+    <p class="muted">No hearings recorded.</p>
+    {% endfor %}
+</section>
+
+{% if can_manage %}
+<section class="panel" aria-labelledby="add-title">
+    <h2 id="add-title">Add a hearing</h2>
+    <form method="post" action="{{ url_for('court.add_hearing', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="hearing_at"><span class="field-label">Date and time</span>
+            <input id="hearing_at" name="hearing_at" type="datetime-local" required></label>
+        <label class="field-group" for="court"><span class="field-label">Court</span>
+            <input id="court" name="court" required maxlength="120" autocomplete="off"></label>
+        <label class="field-group" for="case_reference"><span class="field-label">Case reference {{ ui.lock('medical_notes') }}</span>
+            <input id="case_reference" name="case_reference" required maxlength="60" autocomplete="off"></label>
+        <label class="field-group" for="next_date"><span class="field-label">Next date (optional)</span>
+            <input id="next_date" name="next_date" type="date"></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Add hearing</button></div>
+    </form>
+</section>
+{% endif %}
+{% endblock %}
