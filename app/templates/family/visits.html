@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Family contact | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Family <span class="mono">#{{ record.id }}</span></p>
+    <h1>Family contact and visits</h1>
+    <p class="lead">Visits are listed oldest first and can't be edited. Family tracing status:
+        <strong>{{ (tracing.status if tracing else 'not recorded').replace('_', ' ') | capitalize }}</strong>.</p>
+</section>
+
+{% if can_write %}
+<section class="panel" aria-labelledby="tracing-title">
+    <h2 id="tracing-title">Family tracing</h2>
+    <form method="post" class="inline-form" action="{{ url_for('family.set_tracing', record_id=record.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="visually-hidden" for="status">Tracing status</label>
+        <select id="status" name="status">{% for status in statuses %}<option value="{{ status }}" {% if tracing and tracing.status == status %}selected{% endif %}>{{ status.replace('_', ' ') | capitalize }}</option>{% endfor %}</select>
+        <button type="submit" class="secondary-button">Update</button>
+    </form>
+</section>
+{% endif %}
+
+<section class="panel" aria-labelledby="visits-title">
+    <h2 id="visits-title">{{ visits | length }} visit{{ '' if visits | length == 1 else 's' }}</h2>
+    {% for visit in visits %}
+    <article class="note-entry">
+        <p><span class="mono">{{ visit.visit_at.strftime('%Y-%m-%d %H:%M') }}</span> · {{ visit.visitor_name }}
+            ({{ visit.relationship.replace('_', ' ') }}) · {{ 'Supervised' if visit.supervised else 'Unsupervised' }}</p>
+        {% if visit.notes %}<p>{{ visit.notes }}</p>{% endif %}
+    </article>
+    {% else %}
+    <p class="muted">No visits recorded.</p>
+    {% endfor %}
+    {% if can_write %}
+    <form method="post" action="{{ url_for('family.add_visit', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="visit_at"><span class="field-label">Date and time</span>
+            <input id="visit_at" name="visit_at" type="datetime-local" required></label>
+        <label class="field-group" for="visitor_name"><span class="field-label">Visitor {{ ui.lock('full_name') }}</span>
+            <input id="visitor_name" name="visitor_name" required maxlength="120" autocomplete="off"></label>
+        <label class="field-group" for="relationship"><span class="field-label">Relationship</span>
+            <select id="relationship" name="relationship">{% for r in relationships %}<option value="{{ r }}">{{ r.replace('_', ' ') | capitalize }}</option>{% endfor %}</select></label>
+        <label class="field-group" for="supervised"><span class="field-label">Supervised</span>
+            <select id="supervised" name="supervised"><option value="yes">Yes</option><option value="no">No</option></select></label>
+        <label class="field-group" for="notes"><span class="field-label">Notes {{ ui.lock('medical_notes') }}</span>
+            <textarea id="notes" name="notes" maxlength="2000" rows="3"></textarea></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Record visit</button></div>
+    </form>
+    {% endif %}
+</section>
+{% endblock %}
