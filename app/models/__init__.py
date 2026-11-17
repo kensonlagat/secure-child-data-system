@@ -23,6 +23,7 @@ from app.models.placement import AftercareFollowUp, Placement
 from app.models.missing import MissingChildAlert
 from app.models.export import ExportRequest
 from app.models.document import Document, DocumentBlob
+from app.models.photo import ChildPhoto
 
 __all__ = [
 	"User",
@@ -57,4 +58,5 @@ __all__ = [
 	"ExportRequest",
 	"Document",
 	"DocumentBlob",
+	"ChildPhoto",
 ]
