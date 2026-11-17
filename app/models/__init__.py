@@ -24,6 +24,7 @@ from app.models.missing import MissingChildAlert
 from app.models.export import ExportRequest
 from app.models.document import Document, DocumentBlob
 from app.models.photo import ChildPhoto
+from app.models.report_card import ReportCard, ReportCardEntry
 
 __all__ = [
 	"User",
@@ -59,4 +60,6 @@ __all__ = [
 	"Document",
 	"DocumentBlob",
 	"ChildPhoto",
+	"ReportCard",
+	"ReportCardEntry",
 ]
