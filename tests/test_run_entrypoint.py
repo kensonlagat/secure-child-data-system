@@ -24,9 +24,16 @@ def test_unset_flask_env_selects_production(environ):
     assert _select_config_name()(environ) == "production"
 
 
-@pytest.mark.parametrize("name", ["development", "production", "testing"])
+@pytest.mark.parametrize("name", ["development", "production"])
 def test_explicit_flask_env_is_respected(name):
     assert _select_config_name()({"FLASK_ENV": name}) == name
+
+
+@pytest.mark.parametrize("value", ["testing", " testing "])
+def test_testing_config_is_refused_outside_the_test_suite(value):
+    # TestingConfig disables CSRF, the #73 key checks and the #68 second step at once.
+    with pytest.raises(RuntimeError, match="only for the test suite"):
+        _select_config_name()({"FLASK_ENV": value})
 
 
 def test_unknown_flask_env_is_refused():
