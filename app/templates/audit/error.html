@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block title %}Filter not allowed | Child Data System{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="notice error" role="alert">{{ message }}</div>
+    <p><a class="secondary-button" href="{{ url_for('audit.view_log') }}">Back to the audit log</a></p>
+</section>
+{% endblock %}

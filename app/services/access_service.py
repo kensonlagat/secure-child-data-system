@@ -503,3 +503,22 @@ def can_view_document(user, record, document_type):
 def can_delete_document(user):
     """Soft deletion is administrator-only and OTP-gated (hard rule 4 applied to documents)."""
     return _get_role_name(user) == "administrator"
+
+
+# --- Child photos (#87) ---------------------------------------------------------------------
+
+PHOTO_VIEW_ROLES = {"administrator", "teacher", "school_nurse", "social_worker"}
+
+
+def can_view_photo(user, record):
+    """Allowed roles, within their record scope, and only when photo consent is given (#63).
+    Missing consent means no photo."""
+    from app.services.consent_service import has_consent
+
+    return (record is not None and _get_role_name(user) in PHOTO_VIEW_ROLES and can_access_record(user, record)
+            and has_consent(record.id, "photo"))
+
+
+def can_upload_photo(user, record):
+    """Administrators upload photos."""
+    return _get_role_name(user) == "administrator" and can_access_record(user, record)

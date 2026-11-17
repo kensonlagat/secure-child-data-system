@@ -49,7 +49,7 @@
 <section class="panel" id="audit-log" aria-labelledby="audit-log-title">
     <div class="section-head">
         <h2 id="audit-log-title">Recent audit activity</h2>
-        <p class="muted">Latest 10 entries</p>
+        <p class="muted">Latest 10 entries · <a href="{{ url_for('audit.view_log') }}">Full audit log</a></p>
     </div>
     <div class="table-wrap" tabindex="0" role="region" aria-labelledby="audit-log-title">
         <table>
