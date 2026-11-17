@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Missing alerts | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Missing children</p>
+    <h1>Open missing alerts</h1>
+    <p class="lead">Every open alert stays here until it is resolved.</p>
+</section>
+
+<section class="panel" aria-labelledby="alerts-title">
+    <h2 id="alerts-title">{{ alerts | length }} open</h2>
+    {% if alerts %}
+    <ul class="plain-list">
+        {% for alert in alerts %}
+        <li><span class="status-pill status-pending_otp">Open</span> raised <span class="mono">{{ alert.raised_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            · <a href="{{ url_for('missing.alert_page', record_id=alert.child_record_id) }}">Record <span class="mono">#{{ alert.child_record_id }}</span></a></li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No open alerts.</p>
+    {% endif %}
+</section>
+{% endblock %}

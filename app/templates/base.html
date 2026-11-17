@@ -127,7 +127,11 @@
         <div class="app-main">
             <main id="main" class="page" tabindex="-1">
                 {{ flash_messages() }}
-                {% block content %}{% endblock %}
+                {% if open_missing_alerts %}
+    <div class="notice error missing-banner" role="alert"><strong>{{ open_missing_alerts }} open missing child
+            alert{{ '' if open_missing_alerts == 1 else 's' }}.</strong> <a href="{{ url_for('missing.open_list') }}">Review now</a></div>
+    {% endif %}
+    {% block content %}{% endblock %}
             </main>
         </div>
     </div>

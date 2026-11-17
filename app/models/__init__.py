@@ -20,6 +20,7 @@ from app.models.court import CourtHearing
 from app.models.health import HealthEntry, MedicationAdministration, MedicationSchedule
 from app.models.family import FamilyTracing, FamilyVisit
 from app.models.placement import AftercareFollowUp, Placement
+from app.models.missing import MissingChildAlert
 
 __all__ = [
 	"User",
@@ -50,4 +51,5 @@ __all__ = [
 	"FamilyTracing",
 	"Placement",
 	"AftercareFollowUp",
+	"MissingChildAlert",
 ]

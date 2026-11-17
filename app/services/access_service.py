@@ -421,3 +421,25 @@ def can_read_placement(user, record):
         return True
     return (_is_home_record(record) and _get_role_name(user) in {"legal_officer", "home_manager"}
             and can_access_record(user, record))
+
+
+# --- Missing child alerts (#60) -------------------------------------------------------------
+
+HOME_STAFF_ROLES = {"social_worker", "legal_officer", "home_manager", "administrator"}
+
+
+def get_record_for_missing_alert(user, record_id):
+    """Any children's-home staff member may raise an alert for any home child (a child is not
+    missing only from their own caseload). Lives here, not in a route (hard rule 2)."""
+    if _get_role_name(user) not in HOME_STAFF_ROLES:
+        return None
+    return ChildRecord.query.filter(
+        ChildRecord.id == record_id,
+        ChildRecord.is_deleted.is_(False),
+        ChildRecord.institution_mode == "childrens_home",
+    ).first()
+
+
+def can_resolve_missing_alert(user):
+    """The home manager and administrators resolve alerts."""
+    return _get_role_name(user) in {"home_manager", "administrator"}
