@@ -181,9 +181,9 @@ def create_link(actor, record, raw_phone, full_name, relationship, document_type
         raise LinkError("Choose the identity document you checked.")
     if record is None or record.institution_mode != "school":
         raise LinkError("Parents can only be linked to school records.")
-    parent = User.query.filter(User.login_phone == phone).first()
-    if parent is not None and getattr(parent.role, "name", None) != "parent_guardian":
+    if _belongs_to_staff(phone):
         raise LinkError("That number belongs to an account that isn't a parent account.")
+    parent = User.query.filter(User.login_phone == phone).first()
     if parent is None:
         role = Role.query.filter_by(name="parent_guardian").first()
         if role is None:
@@ -209,18 +209,40 @@ def create_link(actor, record, raw_phone, full_name, relationship, document_type
     return link
 
 
+def _belongs_to_staff(phone):
+    """True when any non-parent account uses this number, as its contact number (staff have no
+    login_phone) or its login_phone. Stored numbers are compared after the same normalisation."""
+    others = (User.query.outerjoin(Role, Role.id == User.role_id)
+              .filter(db.or_(Role.name.is_(None), Role.name != "parent_guardian"))
+              .with_entities(User.phone_number, User.login_phone).all())
+    return any(phone in (normalise_phone(contact), normalise_phone(login)) for contact, login in others)
+
+
+def _refuse_creator(actor, link, step):
+    """Two people to activate a link (same principle as the legal-status workflow): the
+    administrator who created it can't verify it, so one account alone can't give a number
+    ongoing access to a child."""
+    if link.created_by == actor.id:
+        log_action(user_id=actor.id, action="guardian_link_verify_refused", target_record_type="guardian_link",
+                   target_record_id=link.id, details=f"Creator of the link tried to {step} it")
+        raise LinkError("You created this link, so a different administrator must verify it.")
+
+
 def request_link_verification(actor, link):
     if link.status != "pending":
         raise LinkError("Only a pending link can be verified.")
+    _refuse_creator(actor, link, "request a verification code for")
     generate_otp(actor, LINK_VERIFY_CONTEXT, target_record_id=link.id)
     log_action(user_id=actor.id, action="guardian_link_verify_requested", target_record_type="guardian_link",
                target_record_id=link.id, details="Verification code sent to the acting administrator")
 
 
 def verify_link(actor, link, raw_code):
-    """Activate a pending link with the code sent to this administrator for this link."""
+    """Activate a pending link with the code sent to this administrator for this link. The
+    verifier must not be the creator."""
     if link.status != "pending":
         raise LinkError("Only a pending link can be verified.")
+    _refuse_creator(actor, link, "verify")
     otp_event = (OTPEvent.query.filter_by(user_id=actor.id, action_context=LINK_VERIFY_CONTEXT,
                                           target_record_id=link.id, is_verified=False)
                  .order_by(OTPEvent.id.desc()).first())

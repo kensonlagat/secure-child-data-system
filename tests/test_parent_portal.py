@@ -302,32 +302,61 @@ def test_a_new_link_is_pending_records_the_document_type_only_and_gives_no_acces
     assert sms == []  # a pending link gives no sign-in
 
 
-def test_verifying_a_link_needs_the_admins_code_for_that_link(app, sms):
-    admin = staff_client(app, "admin@example.com")
+def _create_links(app, client, pairs, relationship="guardian", document="passport"):
     kids = app.config["KIDS"]
-    for key, phone in (("B", "+254755000005"), ("E", "+254755000006")):
-        admin.post("/admin/guardian-links", data={"child_record_id": kids[key], "phone": phone, "full_name": "Pat Parent",
-                                                  "relationship": "guardian", "identity_document_type": "passport"})
+    for key, phone in pairs:
+        client.post("/admin/guardian-links", data={"child_record_id": kids[key], "phone": phone,
+                                                   "full_name": "Pat Parent", "relationship": relationship,
+                                                   "identity_document_type": document})
+
+
+def test_verifying_a_link_needs_the_verifiers_code_for_that_link(app, sms):
+    creator = staff_client(app, "admin@example.com")
+    _create_links(app, creator, (("B", "+254755000005"), ("E", "+254755000006")))
+    kids = app.config["KIDS"]
     with app.app_context():
         first = GuardianLink.query.filter_by(child_record_id=kids["B"]).one().id
         second = GuardianLink.query.filter_by(child_record_id=kids["E"], status="pending").one().id
-    admin.post(f"/admin/guardian-links/{first}/request-code")
-    code_for_first = codes_for(sms, "+254700000001")[-1]
+        verifier_id = User.query.filter_by(email="admin2@example.com").one().id
+    verifier = staff_client(app, "admin2@example.com")
+    verifier.post(f"/admin/guardian-links/{first}/request-code")
+    code_for_first = codes_for(sms, "+254700000002")[-1]
     # The code for the first link can't verify the second one.
-    admin.post(f"/admin/guardian-links/{second}/request-code")
-    admin.post(f"/admin/guardian-links/{second}/verify", data={"code": code_for_first})
-    # Another administrator can't use the first administrator's code.
-    admin2 = staff_client(app, "admin2@example.com")
-    admin2.post(f"/admin/guardian-links/{first}/verify", data={"code": code_for_first})
+    verifier.post(f"/admin/guardian-links/{second}/request-code")
+    verifier.post(f"/admin/guardian-links/{second}/verify", data={"code": code_for_first})
     with app.app_context():
         assert db.session.get(GuardianLink, second).status == "pending"
         assert db.session.get(GuardianLink, first).status == "pending"
-    admin.post(f"/admin/guardian-links/{first}/verify", data={"code": code_for_first})
+    verifier.post(f"/admin/guardian-links/{first}/verify", data={"code": code_for_first})
     with app.app_context():
         link = db.session.get(GuardianLink, first)
-        assert link.status == "active" and link.verified_by == app.config["ADMIN"]
+        assert link.status == "active" and link.verified_by == verifier_id != link.created_by
     assert count(app, "guardian_link_verified") == 1
-    assert count(app, "guardian_link_verify_failed") == 2
+    assert count(app, "guardian_link_verify_failed") == 1
+
+
+def test_the_creator_of_a_link_cannot_verify_it(app, sms):
+    creator = staff_client(app, "admin@example.com")
+    _create_links(app, creator, (("B", "+254755000005"),))
+    with app.app_context():
+        link_id = GuardianLink.query.filter_by(child_record_id=app.config["KIDS"]["B"]).one().id
+    sms.clear()
+    response = creator.post(f"/admin/guardian-links/{link_id}/request-code", follow_redirects=True)
+    assert b"a different administrator must verify it" in response.data
+    assert sms == []  # no code is sent to the creator
+    # Even holding a valid code for this link (sent to another admin), the creator is refused.
+    staff_client(app, "admin2@example.com").post(f"/admin/guardian-links/{link_id}/request-code")
+    code = codes_for(sms, "+254700000002")[-1]
+    response = creator.post(f"/admin/guardian-links/{link_id}/verify", data={"code": code}, follow_redirects=True)
+    assert b"a different administrator must verify it" in response.data
+    with app.app_context():
+        assert db.session.get(GuardianLink, link_id).status == "pending"
+    assert count(app, "guardian_link_verify_refused") == 2
+    assert count(app, "guardian_link_verified") == 0
+    # The second administrator's own code still works afterwards (it wasn't used up).
+    staff_client(app, "admin2@example.com").post(f"/admin/guardian-links/{link_id}/verify", data={"code": code})
+    with app.app_context():
+        assert db.session.get(GuardianLink, link_id).status == "active"
 
 
 def test_only_administrators_manage_links(app, sms):
@@ -336,17 +365,37 @@ def test_only_administrators_manage_links(app, sms):
     assert teacher.post("/admin/guardian-links", data={}).status_code == 403
 
 
-def test_a_staff_number_cannot_be_linked_as_a_parent(app, sms):
+@pytest.mark.parametrize("typed, login_phone", [
+    (STAFF_PHONE, False),                     # staff contact number only (staff have no login_phone)
+    ("+254 722 000 002", False),              # same number typed with spaces
+    (STAFF_PHONE, True),                      # also set as a login_phone
+    ("+254700000002", False),                 # another administrator's number
+])
+def test_a_staff_number_cannot_be_linked_as_a_parent(app, sms, typed, login_phone):
     admin = staff_client(app, "admin@example.com")
+    if login_phone:
+        with app.app_context():
+            teacher = User.query.filter_by(email="teacher@example.com").one()
+            teacher.login_phone = STAFF_PHONE
+            db.session.commit()
     with app.app_context():
-        teacher = User.query.filter_by(email="teacher@example.com").one()
-        teacher.login_phone = STAFF_PHONE
-        db.session.commit()
-    admin.post("/admin/guardian-links", data={"child_record_id": app.config["KIDS"]["B"], "phone": STAFF_PHONE,
-                                              "full_name": "X", "relationship": "other",
-                                              "identity_document_type": "other"})
+        users_before = User.query.count()
+    response = admin.post("/admin/guardian-links",
+                          data={"child_record_id": app.config["KIDS"]["B"], "phone": typed,
+                                "full_name": "Pat Parent", "relationship": "guardian",
+                                "identity_document_type": "passport"}, follow_redirects=True)
+    assert b"isn&#39;t a parent account" in response.data or b"isn't a parent account" in response.data
     with app.app_context():
         assert GuardianLink.query.filter_by(child_record_id=app.config["KIDS"]["B"]).count() == 0
+        assert User.query.count() == users_before  # no parent account was created for the number
+
+
+def test_the_same_details_with_a_new_number_are_accepted(app, sms):
+    """Control for the test above: the form data is valid, so the refusal really is the number."""
+    admin = staff_client(app, "admin@example.com")
+    _create_links(app, admin, (("B", "+254755000077"),))
+    with app.app_context():
+        assert GuardianLink.query.filter_by(child_record_id=app.config["KIDS"]["B"]).count() == 1
 
 
 # --- CSRF -------------------------------------------------------------------------------------------
