@@ -22,6 +22,10 @@ class BaseConfig:
     # Coarse flood guard only: schools share one public IP, so this must stay
     # well above what a busy staff room produces. Per-account lockout does the real work.
     LOGIN_IP_MAX_FAILURES = 100
+    # Staff second sign-in step (#68): after the password, a one-time SMS code. Not read
+    # from the environment, so it can't be switched off by a setting; create_app refuses
+    # to start with it off outside testing.
+    STAFF_SECOND_STEP_REQUIRED = True
     # At most one access_denied audit row per actor, endpoint and outcome in this window.
     ACCESS_DENIED_AUDIT_WINDOW_SECONDS = 60
     # On top of the per-record bound: at most this many record-level access_denied rows per
@@ -64,6 +68,8 @@ class TestingConfig(BaseConfig):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
     WTF_CSRF_ENABLED = False
+    # Older tests sign in with one POST. The #68 tests turn the second step back on.
+    STAFF_SECOND_STEP_REQUIRED = False
 
 
 class ProductionConfig(BaseConfig):
