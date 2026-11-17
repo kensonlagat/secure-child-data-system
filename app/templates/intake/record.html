@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Intake | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Intake <span class="mono">#{{ record.id }}</span></p>
+    <h1>Admission and intake</h1>
+    <p class="lead">How and why this child came into care. Every view and change is recorded in the audit log.</p>
+</section>
+
+{% if not intake %}
+<div class="notice warning" role="status">This child has no intake record yet.{% if can_write %} Please add one below.{% endif %}</div>
+{% endif %}
+
+<section class="panel" aria-labelledby="intake-title">
+    <h2 id="intake-title">Intake</h2>
+    {% if can_write %}
+    <form method="post" action="{{ url_for('intake.save_intake', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="referral_source"><span class="field-label">Referral source</span>
+            <select id="referral_source" name="referral_source" required>
+                {% for source in sources %}<option value="{{ source }}" {% if intake and intake.referral_source == source %}selected{% endif %}>{{ source.replace('_', ' ') | capitalize }}</option>{% endfor %}
+            </select></label>
+        <label class="field-group" for="admission_date"><span class="field-label">Admission date</span>
+            <input id="admission_date" name="admission_date" type="date" required value="{{ intake.admission_date.isoformat() if intake else '' }}"></label>
+        <label class="field-group" for="placement_reason"><span class="field-label">Reason for placement {{ ui.lock('medical_notes') }}</span>
+            <textarea id="placement_reason" name="placement_reason" required maxlength="1000" rows="4">{{ intake.placement_reason if intake else '' }}</textarea></label>
+        <label class="field-group" for="committal_order_reference"><span class="field-label">Committal order reference {{ ui.lock('medical_notes') }}</span>
+            <input id="committal_order_reference" name="committal_order_reference" maxlength="60" autocomplete="off" value="{{ (intake.committal_order_reference or '') if intake else '' }}"></label>
+        <label class="field-group" for="childrens_officer"><span class="field-label">Assigned children's officer {{ ui.lock('medical_notes') }}</span>
+            <input id="childrens_officer" name="childrens_officer" maxlength="120" autocomplete="off" value="{{ (intake.childrens_officer or '') if intake else '' }}"></label>
+        <div class="form-actions"><button type="submit" class="primary-button">{{ 'Save changes' if intake else 'Record intake' }}</button></div>
+    </form>
+    {% elif intake %}
+    <dl class="detail-list">
+        <dt>Referral source</dt><dd>{{ intake.referral_source.replace('_', ' ') | capitalize }}</dd>
+        <dt>Admission date</dt><dd class="mono">{{ intake.admission_date.isoformat() }}</dd>
+        <dt>Reason for placement</dt><dd>{{ intake.placement_reason }}</dd>
+        <dt>Committal order reference</dt><dd class="mono">{{ intake.committal_order_reference or '' }}</dd>
+        <dt>Assigned children's officer</dt><dd>{{ intake.childrens_officer or '' }}</dd>
+    </dl>
+    {% endif %}
+</section>
+{% endblock %}

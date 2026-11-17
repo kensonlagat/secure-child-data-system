@@ -112,6 +112,7 @@
                         {% endif %}
                         <a class="action-link" href="{{ url_for('consent.consent_page', record_id=entry['record'].id) }}">Consent</a>
                         {% if page_mode == 'school' %}<a class="action-link" href="{{ url_for('pickup.collectors', record_id=entry['record'].id) }}">Pickup</a>{% endif %}
+                        {% if page_mode == 'childrens_home' %}<a class="action-link" href="{{ url_for('intake.intake_page', record_id=entry['record'].id) }}">Intake</a>{% endif %}
                         {% if page_mode == 'school' and current_user.role and current_user.role.name in ['school_nurse', 'administrator'] %}<a class="action-link" href="{{ url_for('clinic.visits', record_id=entry['record'].id) }}">Clinic</a>{% endif %}
 
                         {% if current_user.role and current_user.role.name == 'administrator' %}
