@@ -1330,3 +1330,9 @@ body.portal-locked .auth-card .primary-button:hover {
 .detail-list dd {
     margin: 0;
 }
+
+/* Case notes (#55) */
+.note-entry {
+    border-top: 1px solid var(--line);
+    padding: var(--space-3) 0;
+}

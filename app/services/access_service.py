@@ -327,3 +327,25 @@ def can_read_intake(user, record):
         return True
     return (_is_home_record(record) and _get_role_name(user) in {"legal_officer", "home_manager"}
             and can_access_record(user, record))
+
+
+# --- Care plan and case notes (#55) -------------------------------------------------------------
+
+
+def can_write_care_plan(user, record):
+    """Only the assigned social worker (the record's caseload worker) writes goals and notes."""
+    return (_is_home_record(record) and _get_role_name(user) == "social_worker"
+            and getattr(record, "caseload_worker_id", None) == getattr(user, "id", None)
+            and can_access_record(user, record))
+
+
+def can_read_care_plan(user, record):
+    """The assigned social worker and the home manager read goals and full notes."""
+    if can_write_care_plan(user, record):
+        return True
+    return _is_home_record(record) and _get_role_name(user) == "home_manager" and can_access_record(user, record)
+
+
+def can_read_legal_summaries(user, record):
+    """Legal officers see only the legal summaries of case notes, never goals or note bodies."""
+    return _is_home_record(record) and _get_role_name(user) == "legal_officer" and can_access_record(user, record)
