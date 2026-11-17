@@ -522,3 +522,61 @@ def can_view_photo(user, record):
 def can_upload_photo(user, record):
     """Administrators upload photos."""
     return _get_role_name(user) == "administrator" and can_access_record(user, record)
+
+
+# --- Report cards (#70) ---------------------------------------------------------------------
+
+REPORT_READER_ROLES = {"administrator", "principal"}
+
+
+def _teaches_class(user, class_id):
+    """True only for a current assignment to an active class."""
+    return (ClassTeacherAssignment.query.join(SchoolClass, SchoolClass.id == ClassTeacherAssignment.class_id)
+            .filter(ClassTeacherAssignment.class_id == class_id,
+                    ClassTeacherAssignment.user_id == getattr(user, "id", None),
+                    ClassTeacherAssignment.ended_at.is_(None), SchoolClass.is_active.is_(True))
+            .first() is not None)
+
+
+def can_enter_marks(user, school_class, record):
+    """Teachers only, for their own active class, and only for a child currently enrolled in it.
+    Archived and deleted children are excluded. Administrators and principals read, never write."""
+    if _get_role_name(user) != "teacher" or school_class is None or not _is_school_record(record):
+        return False
+    if not school_class.is_active or not _teaches_class(user, school_class.id):
+        return False
+    return Enrolment.query.filter_by(child_record_id=record.id, class_id=school_class.id,
+                                     ended_on=None).first() is not None
+
+
+def can_read_class_reports(user, school_class):
+    """The class teacher, principals and administrators."""
+    if school_class is None:
+        return False
+    role_name = _get_role_name(user)
+    if role_name in REPORT_READER_ROLES:
+        return True
+    return role_name == "teacher" and _teaches_class(user, school_class.id)
+
+
+def can_read_report_card(user, record):
+    """Principals and administrators read any school child's cards; teachers read the cards of
+    children currently in their scope (so a new class teacher sees earlier terms, a former one
+    does not). Archived and deleted children are excluded for everyone."""
+    if not _is_school_record(record):
+        return False
+    role_name = _get_role_name(user)
+    if role_name in REPORT_READER_ROLES:
+        return True
+    return role_name == "teacher" and can_access_record(user, record)
+
+
+def get_record_for_report_card(user, record_id):
+    """The school record for a report-card page, or None. Lives here because principals read
+    report cards without general record access (hard rule 2)."""
+    record = ChildRecord.query.filter(
+        ChildRecord.id == record_id,
+        ChildRecord.is_deleted.is_(False), ChildRecord.is_archived.is_(False),
+        ChildRecord.institution_mode == "school",
+    ).first()
+    return record if can_read_report_card(user, record) else None

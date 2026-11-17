@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Report card | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Term report</p>
+    <h1>{{ record.full_name }}</h1>
+    <p class="lead">{{ school_class.label if school_class else '' }} · {{ card.academic_year }} term {{ card.term }} ·
+        {% if card.is_published %}Published {{ card.published_at.strftime('%Y-%m-%d') }}{% else %}<strong>Draft, not final</strong>{% endif %}</p>
+</section>
+
+<section class="panel" aria-labelledby="results-title">
+    <h2 id="results-title">Competency levels</h2>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="results-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Learning area</th><th scope="col">Level</th><th scope="col">Comment</th></tr></thead>
+            <tbody>
+                {% for key, label in areas %}
+                {% set entry = entries.get(key) %}
+                <tr>
+                    <td>{{ label }}</td>
+                    <td>{% if entry %}{{ entry.level }}: {{ levels.get(entry.level, '') }}{% else %}<span class="muted">Not entered</span>{% endif %}</td>
+                    <td>{{ entry.comment if entry and entry.comment else '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if card.teacher_comment %}
+    <h3>Class teacher's comment</h3>
+    <p>{{ card.teacher_comment }}</p>
+    {% endif %}
+    <p class="muted">Use your browser's print command to print this report.</p>
+    {% if can_edit %}<p><a class="secondary-button" href="{{ url_for('report_cards.edit', class_id=card.class_id, record_id=record.id, year=card.academic_year, term=card.term) }}">Edit draft</a></p>{% endif %}
+</section>
+{% endblock %}

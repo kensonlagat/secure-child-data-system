@@ -31,6 +31,10 @@ APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records", "attendance_corrections", 
 COLUMN_UPDATE_TABLES = {
     "authorised_collectors": ("status", "decided_by", "decided_at", "is_active", "revoked_by", "revoked_at"),
     "documents": ("is_deleted", "deleted_at"),
+    # Report cards (#70): only the editable fields; ids, child, class, term and creator are fixed.
+    # A trigger also refuses any change once a card is published.
+    "report_cards": ("status", "teacher_comment", "updated_by", "updated_at", "published_by", "published_at"),
+    "report_card_entries": ("level", "comment", "updated_by", "updated_at"),
 }
 MIGRATION_TABLE = "alembic_version"
 PURGE_FUNCTION = "purge_synthetic_audit_entries()"

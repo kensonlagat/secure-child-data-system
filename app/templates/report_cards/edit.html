@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Enter marks | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow"><a href="{{ url_for('report_cards.class_reports', class_id=school_class.id, year=year, term=term) }}">{{ school_class.label }}</a></p>
+    <h1>{{ record.full_name }}: {{ year }} term {{ term }}</h1>
+    <p class="lead">Save as a draft as often as you like. Publishing makes the report final: it can't be changed afterwards.</p>
+</section>
+
+<section class="panel" aria-labelledby="marks-title">
+    <h2 id="marks-title">Learning areas</h2>
+    <form method="post" action="{{ url_for('report_cards.save', class_id=school_class.id, record_id=record.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="term" value="{{ term }}">
+        <div class="table-wrap" tabindex="0" role="region" aria-labelledby="marks-title">
+            <table class="data-table">
+                <thead><tr><th scope="col">Learning area</th><th scope="col">Level</th><th scope="col">Comment (optional)</th></tr></thead>
+                <tbody>
+                    {% for key, label in areas %}
+                    {% set entry = entries.get(key) %}
+                    <tr>
+                        <td>{{ label }}</td>
+                        <td>
+                            <label class="visually-hidden" for="level_{{ key }}">Level for {{ label }}</label>
+                            <select id="level_{{ key }}" name="level_{{ key }}">
+                                <option value="">{{ 'Keep' if entry else 'Choose' }}</option>
+                                {% for level, level_label in levels %}
+                                <option value="{{ level }}" {% if entry and entry.level == level %}selected{% endif %}>{{ level }}: {{ level_label }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <label class="visually-hidden" for="comment_{{ key }}">Comment for {{ label }}</label>
+                            <input id="comment_{{ key }}" name="comment_{{ key }}" maxlength="300" autocomplete="off" value="{{ entry.comment if entry and entry.comment else '' }}">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <label class="field-group" for="teacher_comment">
+            <span class="field-label">Class teacher's comment</span>
+            <textarea id="teacher_comment" name="teacher_comment" maxlength="1000" rows="3">{{ card.teacher_comment if card and card.teacher_comment else '' }}</textarea>
+        </label>
+        <div class="form-actions">
+            <button type="submit" class="secondary-button">Save draft</button>
+            <button type="submit" name="publish" value="1" class="primary-button">Save and publish</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

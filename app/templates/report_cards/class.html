@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Report cards {{ school_class.label }} | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow"><a href="{{ url_for('report_cards.class_list') }}">Report cards</a></p>
+    <h1>{{ school_class.label }}: {{ year }} term {{ term }}</h1>
+    <form method="get" class="inline-form" action="{{ url_for('report_cards.class_reports', class_id=school_class.id) }}">
+        <label class="visually-hidden" for="year">Year</label>
+        <input id="year" name="year" type="number" min="2020" max="2100" value="{{ year }}">
+        <label class="visually-hidden" for="term">Term</label>
+        <select id="term" name="term">
+            {% for option in terms %}<option value="{{ option }}" {% if option == term %}selected{% endif %}>Term {{ option }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="secondary-button">Open</button>
+    </form>
+</section>
+
+<section class="panel" aria-labelledby="class-title">
+    <h2 id="class-title">{{ children | length }} child{{ '' if children | length == 1 else 'ren' }}</h2>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="class-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Name</th><th scope="col">Report</th><th scope="col">Actions</th></tr></thead>
+            <tbody>
+                {% for child in children %}
+                {% set card = cards.get(child.id) %}
+                <tr>
+                    <td>{{ child.full_name }}</td>
+                    <td>{% if card and card.is_published %}<span class="status-pill status-approved">Published</span>
+                        {% elif card %}<span class="status-pill status-pending_otp">Draft</span>
+                        {% else %}<span class="muted">Not started</span>{% endif %}</td>
+                    <td class="table-actions">
+                        {% if card %}<a class="action-link-button" href="{{ url_for('report_cards.view_card', card_id=card.id) }}">View</a>{% endif %}
+                        {% if can_enter.get(child.id) and not (card and card.is_published) %}
+                        <a class="action-link-button" href="{{ url_for('report_cards.edit', class_id=school_class.id, record_id=child.id, year=year, term=term) }}">{{ 'Continue' if card else 'Enter marks' }}</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="empty-state">No children are enrolled in this class.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

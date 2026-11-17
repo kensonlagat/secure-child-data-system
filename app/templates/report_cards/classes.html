@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Report cards | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Report cards</p>
+    <h1>Term report cards</h1>
+    <p class="lead">Class teachers enter competency levels for their own class. A published report can't be changed.</p>
+</section>
+
+<section class="panel" aria-labelledby="classes-title">
+    <h2 id="classes-title">{{ classes | length }} class{{ '' if classes | length == 1 else 'es' }}</h2>
+    {% if classes %}
+    <ul class="plain-list">
+        {% for school_class in classes %}
+        <li>{{ school_class.label }} ({{ school_class.academic_year }}):
+            {% for term in terms %}
+            <a class="secondary-button" href="{{ url_for('report_cards.class_reports', class_id=school_class.id, year=year, term=term) }}">Term {{ term }}</a>
+            {% endfor %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No classes to show.</p>
+    {% endif %}
+</section>
+{% endblock %}
