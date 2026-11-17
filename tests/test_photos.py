@@ -155,3 +155,20 @@ def test_child_photos_are_append_only():
     from app.db_roles import APPEND_ONLY_TABLES
 
     assert "child_photos" in APPEND_ONLY_TABLES
+
+
+@pytest.mark.parametrize("data, reason", [(b"%PDF-1.4 not a photo", "type"), (b"\xff\xd8\xffgarbage", "image_unreadable")])
+def test_refused_uploads_are_audited_with_the_reason_only(app, data, reason):
+    upload(app, sign_in(app, "administrator"), data=data)
+    with app.app_context():
+        row = AuditLogEntry.query.filter_by(action="child_photo_upload_refused").one()
+    assert row.details == f"Refused photo: {reason}" and "me.jpg" not in row.details
+
+
+def test_oversized_photo_upload_is_audited(app, monkeypatch):
+    from app.services import photo_service
+
+    monkeypatch.setattr(photo_service, "MAX_PHOTO_BYTES", 10)
+    upload(app, sign_in(app, "administrator"))
+    with app.app_context():
+        assert AuditLogEntry.query.filter_by(action="child_photo_upload_refused").one().details == "Refused photo: too_large"
