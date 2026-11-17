@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Upcoming hearings | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Court</p>
+    <h1>Upcoming hearings</h1>
+    <p class="lead">Hearings in the next {{ days }} days for the children you can see.</p>
+</section>
+
+<section class="panel" aria-labelledby="upcoming-title">
+    <h2 id="upcoming-title">{{ hearings | length }} upcoming</h2>
+    {% if hearings %}
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="upcoming-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">When</th><th scope="col">Court</th><th scope="col">Record</th></tr></thead>
+            <tbody>
+                {% for hearing in hearings %}
+                <tr>
+                    <td class="mono">{{ hearing.hearing_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ hearing.court }}</td>
+                    <td><a href="{{ url_for('court.hearings', record_id=hearing.child_record_id) }}">Record <span class="mono">#{{ hearing.child_record_id }}</span></a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">No hearings in the next {{ days }} days.</p>
+    {% endif %}
+</section>
+{% endblock %}

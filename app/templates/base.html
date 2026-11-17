@@ -93,6 +93,7 @@
                 {{ nav_link('school_mode.records', 'School records', on_school) }}
                 {% elif role_name == 'social_worker' %}
                 {{ nav_link('childrens_home_mode.records', 'My caseload', on_home_records) }}
+                {{ nav_link('court.upcoming', 'Court dates', request.blueprint == 'court') }}
                 {% elif role_name == 'principal' %}
                 {{ nav_link('principal.overview', 'Overview', request.blueprint == 'principal') }}
                 {{ nav_link('school_mode.records', 'School records', on_school) }}

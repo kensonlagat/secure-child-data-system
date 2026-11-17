@@ -16,6 +16,7 @@ from app.models.pickup import AuthorisedCollector
 from app.models.clinic import ClinicVisit
 from app.models.intake import IntakeRecord
 from app.models.care_plan import CarePlanGoal, CaseNote
+from app.models.court import CourtHearing
 
 __all__ = [
 	"User",
@@ -38,4 +39,5 @@ __all__ = [
 	"IntakeRecord",
 	"CarePlanGoal",
 	"CaseNote",
+	"CourtHearing",
 ]
