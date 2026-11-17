@@ -17,6 +17,7 @@ from app.services import backup_service as backups
 OWNER_PASSWORD = "owner-pa:ss\\word-not-in-argv"
 ADMIN_PASSWORD = "setup-secret-not-in-argv"
 FAKE_DUMP = b"PGDMP fake custom-format dump with child data: Zawadi"
+COUNTS = {"child_records": 3, "audit_log_entries": 9}
 
 
 @pytest.fixture()
@@ -54,6 +55,7 @@ def tools(monkeypatch):
 
     monkeypatch.setattr(backups.subprocess, "run", fake_run)
     monkeypatch.setattr(backups, "_tool", lambda name: name)
+    monkeypatch.setattr(backups, "_row_counts", lambda conn: dict(COUNTS))
     return calls
 
 
@@ -68,7 +70,10 @@ def test_backup_is_encrypted_and_never_written_in_plaintext(app, tools):
     target = backups.create_backup(datetime(2026, 11, 17, 9, 0, 0))
     blob = target.read_bytes()
     assert b"Zawadi" not in blob and b"PGDMP" not in blob
-    assert backups.decrypt(backups.load_key(os.environ["BACKUP_KEY_FILE"]), blob, target.name) == FAKE_DUMP
+    manifest, dump = backups.unpack(backups.decrypt(backups.load_key(os.environ["BACKUP_KEY_FILE"]), blob,
+                                                    target.name))
+    assert dump == FAKE_DUMP
+    assert manifest["row_counts"] == COUNTS
     assert [p.name for p in target.parent.iterdir()] == [target.name]
 
 
@@ -140,6 +145,7 @@ def test_a_tool_failure_still_deletes_the_pgpass_file_and_is_audited(app, monkey
 
     monkeypatch.setattr(backups.subprocess, "run", failing)
     monkeypatch.setattr(backups, "_tool", lambda name: name)
+    monkeypatch.setattr(backups, "_row_counts", lambda conn: dict(COUNTS))
     with pytest.raises(backups.BackupError, match="exit code 1"):
         backups.create_backup()
     assert not Path(seen[0]).exists()
@@ -172,12 +178,11 @@ def test_backup_dir_inside_the_project_is_refused(app, tools, monkeypatch):
 
 def test_restore_test_uses_only_the_scratch_database_and_is_audited(app, tools):
     target = backups.create_backup(datetime(2026, 11, 17, 9, 0, 0))
-    counts = {"child_records": 3, "audit_log_entries": 10}
     seen = []
 
     def row_counts(conn):
         seen.append(conn.database)
-        return dict(counts) if conn.database == "child_data_system" else {**counts, "audit_log_entries": 9}
+        return {**COUNTS, "audit_log_entries": 10} if conn.database == "child_data_system" else dict(COUNTS)
 
     restored = backups.restore_test(target, row_counts=row_counts)
     assert restored["child_records"] == 3
@@ -197,7 +202,7 @@ def test_restore_test_fails_on_missing_tables_and_still_drops_the_scratch_databa
     target = backups.create_backup(datetime(2026, 11, 17, 9, 0, 0))
 
     def row_counts(conn):
-        return {"child_records": 3, "users": 2} if conn.database == "child_data_system" else {"users": 2}
+        return dict(COUNTS) if conn.database == "child_data_system" else {"audit_log_entries": 9}
 
     with pytest.raises(backups.BackupError, match="1 table"):
         backups.restore_test(target, row_counts=row_counts)
@@ -253,3 +258,74 @@ def test_prune_deletes_only_its_own_files_and_audits_each_deletion(app, tools):
     assert backups.prune(now) == [old.name]
     assert not old.exists() and recent.exists() and foreign.exists()
     assert len(audit("backup_deleted")) == 1
+
+
+# --- Manifest (batch 5 review) --------------------------------------------------------------------
+
+
+def test_a_restore_with_tables_present_but_empty_fails(app, tools):
+    target = backups.create_backup(datetime(2026, 11, 17, 9, 0, 0))
+
+    def row_counts(conn):
+        return dict(COUNTS) if conn.database == "child_data_system" else {table: 0 for table in COUNTS}
+
+    with pytest.raises(backups.BackupError, match="2 with fewer rows than at backup time"):
+        backups.restore_test(target, row_counts=row_counts)
+    assert tools[-1]["argv"][0] == "dropdb"
+    assert len(audit("backup_restore_failed")) == 1
+
+
+def test_a_restore_with_more_rows_than_live_fails(app, tools):
+    target = backups.create_backup(datetime(2026, 11, 17, 9, 0, 0))
+
+    def row_counts(conn):
+        return dict(COUNTS) if conn.database == "child_data_system" else {**COUNTS, "child_records": 4}
+
+    with pytest.raises(backups.BackupError, match="1 with more rows than the live database"):
+        backups.restore_test(target, row_counts=row_counts)
+
+
+def test_a_tampered_manifest_fails_the_integrity_check(app, tools):
+    target = backups.create_backup(datetime(2026, 11, 17, 9, 0, 0))
+    blob = bytearray(target.read_bytes())
+    # The manifest is the first plaintext after the magic and nonce; flip a byte there.
+    blob[len(backups.MAGIC) + backups.NONCE_BYTES + 6] ^= 0x01
+    target.write_bytes(bytes(blob))
+    with pytest.raises(backups.BackupError, match="integrity"):
+        backups.restore_test(target, row_counts=lambda conn: dict(COUNTS))
+    assert [c["argv"][0] for c in tools] == ["pg_dump"]  # nothing was restored
+
+
+def test_a_damaged_manifest_inside_a_valid_file_is_refused(app, tools):
+    key = backups.load_key(os.environ["BACKUP_KEY_FILE"])
+    filename = "cds-20261117-090000.dump.enc"
+    target = backups.backup_dir() / filename
+    target.write_bytes(backups.encrypt(key, (999).to_bytes(4, "big") + b"{}" + FAKE_DUMP, filename))
+    with pytest.raises(backups.BackupError, match="manifest is damaged"):
+        backups.restore_test(target, row_counts=lambda conn: dict(COUNTS))
+
+
+def test_tool_stderr_reaches_the_console_but_never_the_audit_log(app, monkeypatch):
+    class Failed:
+        returncode, stdout = 1, b""
+        stderr = b"pg_dump: error: connection to server failed: role-detail-xyz\nsecond line"
+
+    monkeypatch.setattr(backups.subprocess, "run", lambda *a, **k: Failed())
+    monkeypatch.setattr(backups, "_tool", lambda name: name)
+    monkeypatch.setattr(backups, "_row_counts", lambda conn: dict(COUNTS))
+    result = app.test_cli_runner().invoke(args=["backup-db"])
+    assert result.exit_code != 0
+    assert "role-detail-xyz" in result.stderr and "second line" not in result.stderr
+    for row in AuditLogEntry.query.all():
+        assert "role-detail-xyz" not in (row.details or "")
+
+
+def test_decrypt_for_restore_returns_the_dump_and_is_audited(app, tools):
+    target = backups.create_backup(datetime(2026, 11, 17, 9, 0, 0))
+    assert backups.decrypt_for_restore(target) == FAKE_DUMP
+    assert len(audit("backup_decrypted")) == 1
+    other = target.parent / "renamed.dump.enc"
+    target.rename(other)
+    with pytest.raises(backups.BackupError, match="not a backup"):
+        backups.decrypt_for_restore(other)
+    assert len(audit("backup_decrypt_failed")) == 1

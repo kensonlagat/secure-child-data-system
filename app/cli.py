@@ -435,6 +435,8 @@ def create_backup_key_command(key_path):
     try:
         create_key_file(key_path)
     except BackupError as error:
+        if error.diagnostic:
+            click.echo(f"Tool output (console only): {error.diagnostic}", err=True)
         raise click.ClickException(str(error)) from None
     click.echo("Backup key written. Set BACKUP_KEY_FILE to its path in .env and keep a copy somewhere safe:")
     click.echo("without it, the backups can't be restored.")
@@ -452,6 +454,8 @@ def backup_db_command(no_prune):
             deleted = prune()
             click.echo(f"Retention: {len(deleted)} old backup(s) deleted.")
     except BackupError as error:
+        if error.diagnostic:
+            click.echo(f"Tool output (console only): {error.diagnostic}", err=True)
         raise click.ClickException(str(error)) from None
 
 
@@ -467,8 +471,31 @@ def restore_test_command(backup_file):
     try:
         restored = restore_test(backup_file)
     except BackupError as error:
+        if error.diagnostic:
+            click.echo(f"Tool output (console only): {error.diagnostic}", err=True)
         raise click.ClickException(str(error)) from None
     click.echo(f"Restore test passed: {len(restored)} tables, {sum(restored.values())} rows.")
+
+
+@click.command("decrypt-backup")
+@click.option("--file", "backup_file", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="An encrypted backup made by backup-db.")
+def decrypt_backup_command(backup_file):
+    """Write a backup's decrypted dump to standard output, for piping into pg_restore (#69).
+
+    Refuses to write to a terminal, and never writes a file: the plaintext only exists in the pipe.
+    """
+    import sys
+
+    from app.services.backup_service import BackupError, decrypt_for_restore
+    if sys.stdout.isatty():
+        raise click.ClickException("Pipe the output into pg_restore; it is never written to a terminal or file.")
+    try:
+        dump = decrypt_for_restore(backup_file)
+    except BackupError as error:
+        raise click.ClickException(str(error)) from None
+    sys.stdout.buffer.write(dump)
+    sys.stdout.buffer.flush()
 
 
 def register_cli_commands(app):
@@ -486,3 +513,4 @@ def register_cli_commands(app):
     app.cli.add_command(create_backup_key_command)
     app.cli.add_command(backup_db_command)
     app.cli.add_command(restore_test_command)
+    app.cli.add_command(decrypt_backup_command)

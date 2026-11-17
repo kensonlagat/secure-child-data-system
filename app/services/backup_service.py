@@ -7,15 +7,20 @@
   so no plaintext dump ever touches the disk. The key is a separate 32-byte key read from
   BACKUP_KEY_FILE, which must be outside the project folder. It is not FIELD_ENCRYPTION_KEY
   or SECRET_KEY, so a copied .env alone does not open the backups.
+- Just before pg_dump, the row count of every table is taken and stored as a small JSON
+  manifest inside the encrypted file (length-prefixed, in front of the dump, covered by the
+  same GCM tag). cds_app has no DELETE anywhere, so counts can only grow between the count
+  and pg_dump's snapshot.
 - A restore test decrypts in memory, pipes the dump into pg_restore for a fixed scratch
-  database (never the live one), compares row counts table by table, and drops the scratch
-  database again.
+  database (never the live one), and requires every table to have at least its manifest
+  count and no more than the live database has. Then it drops the scratch database.
 - Retention keeps every backup from the last 7 days and the newest one from each of the 4
   weeks before that. Only files matching this module's own name pattern are ever deleted.
 - Every backup, restore test, failure and deletion writes an audit row (no secrets, no data).
 """
 
 import base64
+import json
 import os
 import re
 import secrets
@@ -41,7 +46,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class BackupError(RuntimeError):
-    """A safe message for the operator: names settings and steps, never secret values."""
+    """A safe message for the operator: names settings and steps, never secret values.
+
+    `diagnostic` may hold the first line of a tool's stderr. It is printed to the console
+    only, never written to the audit log."""
+
+    def __init__(self, message, diagnostic=None):
+        super().__init__(message)
+        self.diagnostic = diagnostic
 
 
 @dataclass(frozen=True)
@@ -107,6 +119,28 @@ def encrypt(key, data, filename):
     return MAGIC + nonce + AESGCM(key).encrypt(nonce, data, MAGIC + filename.encode())
 
 
+def pack(manifest, dump):
+    """Manifest JSON (4-byte big-endian length first) followed by the dump. Encrypted as one."""
+    encoded = json.dumps(manifest, sort_keys=True).encode()
+    return len(encoded).to_bytes(4, "big") + encoded + dump
+
+
+def unpack(plaintext):
+    if len(plaintext) < 4:
+        raise BackupError("The backup has no manifest.")
+    length = int.from_bytes(plaintext[:4], "big")
+    if length > len(plaintext) - 4:
+        raise BackupError("The backup manifest is damaged.")
+    try:
+        manifest = json.loads(plaintext[4:4 + length])
+        counts = manifest["row_counts"]
+        if not isinstance(counts, dict) or not all(isinstance(v, int) and v >= 0 for v in counts.values()):
+            raise ValueError
+    except (ValueError, KeyError, TypeError):
+        raise BackupError("The backup manifest is damaged.") from None
+    return manifest, plaintext[4 + length:]
+
+
 def decrypt(key, blob, filename):
     from cryptography.exceptions import InvalidTag
     if not blob.startswith(MAGIC) or len(blob) < len(MAGIC) + NONCE_BYTES + 16:
@@ -151,8 +185,11 @@ def run_pg(conn, tool, args, stdin=None):
         command = [_tool(tool), "-h", conn.host, "-p", str(conn.port), "-U", conn.user, "--no-password", *args]
         result = subprocess.run(command, input=stdin, capture_output=True, env=env, check=False)
         if result.returncode != 0:
-            # stderr can echo object names but never the password (it is not on the command line).
-            raise BackupError(f"{tool} failed with exit code {result.returncode}.")
+            # The first stderr line goes to the console only, for diagnosis; the audit row
+            # gets the exit code. The password is never on the command line, so stderr can't echo it.
+            first_line = (result.stderr or b"").decode("utf-8", "replace").strip().splitlines()[:1]
+            raise BackupError(f"{tool} failed with exit code {result.returncode}.",
+                              diagnostic=first_line[0][:300] if first_line else None)
         return result.stdout
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -176,24 +213,28 @@ def backup_dir():
     return Path(path)
 
 
-def create_backup(now=None):
-    """Dump as the owner, encrypt in memory, write the encrypted file. Returns its path."""
+def create_backup(now=None, row_counts=None):
+    """Count rows, dump as the owner, encrypt both in memory, write the file. Returns its path."""
+    row_counts = row_counts or _row_counts
     now = now or datetime.now()
     try:
         key = load_key(os.environ.get("BACKUP_KEY_FILE"))
         owner = parse_url(os.environ.get("MIGRATION_DATABASE_URL"), "MIGRATION_DATABASE_URL")
         directory = backup_dir()
         filename = f"cds-{now:%Y%m%d-%H%M%S}.dump.enc"
+        counts = row_counts(owner)
         dump = run_pg(owner, "pg_dump", ["-Fc", "-d", owner.database])
         if not dump:
             raise BackupError("pg_dump produced no output.")
+        manifest = {"version": 1, "created": now.isoformat(timespec="seconds"), "row_counts": counts}
         target = directory / filename
         with open(target, "xb") as handle:
-            handle.write(encrypt(key, dump, filename))
+            handle.write(encrypt(key, pack(manifest, dump), filename))
     except BackupError as error:
         _audit("backup_failed", f"Backup failed: {error}")
         raise
-    _audit("backup_created", f"Encrypted backup {filename} written ({target.stat().st_size} bytes)")
+    _audit("backup_created", f"Encrypted backup {filename} written ({target.stat().st_size} bytes, "
+                             f"{len(counts)} tables, {sum(counts.values())} rows counted)")
     return target
 
 
@@ -222,7 +263,8 @@ def restore_test(path, row_counts=_row_counts):
         admin = parse_url(os.environ.get("DB_SETUP_URL"), "DB_SETUP_URL")
         if SCRATCH_DATABASE in (owner.database, admin.database):
             raise BackupError("The scratch database name matches a live database. Nothing was restored.")
-        dump = decrypt(key, path.read_bytes(), path.name)
+        manifest, dump = unpack(decrypt(key, path.read_bytes(), path.name))
+        expected = manifest["row_counts"]
         maintenance = Connection(admin.host, admin.port, admin.user, admin.password, admin.database)
         run_pg(maintenance, "dropdb", ["--if-exists", SCRATCH_DATABASE])
         run_pg(maintenance, "createdb", [SCRATCH_DATABASE])
@@ -232,19 +274,35 @@ def restore_test(path, row_counts=_row_counts):
             restored = row_counts(Connection(admin.host, admin.port, admin.user, admin.password, SCRATCH_DATABASE))
         finally:
             run_pg(maintenance, "dropdb", ["--if-exists", SCRATCH_DATABASE])
-        # The live database may have gained rows since the backup (audit rows at least), so a
-        # restored table may be smaller, never larger, and every table must be present.
-        missing = sorted(set(live) - set(restored))
+        # Every table counted at backup time must come back with at least that many rows (rows
+        # are never deleted, so the dump can only hold more), and never more than live has now.
+        missing = sorted(t for t in expected if t not in restored)
+        short = sorted(t for t in expected if t in restored and restored[t] < expected[t])
         larger = sorted(t for t in restored if t in live and restored[t] > live[t])
-        if missing or larger:
-            raise BackupError(f"Restore check failed: {len(missing)} table(s) missing, "
-                              f"{len(larger)} with more rows than the live database.")
+        if missing or short or larger:
+            raise BackupError(f"Restore check failed: {len(missing)} table(s) missing, {len(short)} with fewer "
+                              f"rows than at backup time, {len(larger)} with more rows than the live database.")
     except BackupError as error:
         _audit("backup_restore_failed", f"Restore test of {path.name} failed: {error}")
         raise
     _audit("backup_restore_tested", f"Restore test of {path.name} passed: {len(restored)} tables, "
                                     f"{sum(restored.values())} rows")
     return restored
+
+
+def decrypt_for_restore(path):
+    """Return the decrypted dump of a backup, for piping into pg_restore. Audited."""
+    path = Path(path)
+    try:
+        if not FILE_PATTERN.match(path.name):
+            raise BackupError("That file name is not a backup made by this system.")
+        key = load_key(os.environ.get("BACKUP_KEY_FILE"))
+        _, dump = unpack(decrypt(key, path.read_bytes(), path.name))
+    except BackupError as error:
+        _audit("backup_decrypt_failed", f"Decrypting {path.name} failed: {error}")
+        raise
+    _audit("backup_decrypted", f"Backup {path.name} decrypted to a pipe for a restore")
+    return dump
 
 
 def select_for_deletion(names, now):
