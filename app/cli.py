@@ -427,6 +427,78 @@ def check_db_privileges_command():
         raise click.ClickException("Database privileges are not least-privilege.")
 
 
+@click.command("create-backup-key")
+@click.option("--path", "key_path", required=True, help="Where to write the key. Must be outside the project folder.")
+def create_backup_key_command(key_path):
+    """Write a new random backup key to a file (#69). The key is never printed."""
+    from app.services.backup_service import BackupError, create_key_file
+    try:
+        create_key_file(key_path)
+    except BackupError as error:
+        if error.diagnostic:
+            click.echo(f"Tool output (console only): {error.diagnostic}", err=True)
+        raise click.ClickException(str(error)) from None
+    click.echo("Backup key written. Set BACKUP_KEY_FILE to its path in .env and keep a copy somewhere safe:")
+    click.echo("without it, the backups can't be restored.")
+
+
+@click.command("backup-db")
+@click.option("--no-prune", is_flag=True, help="Skip the retention clean-up after the backup.")
+def backup_db_command(no_prune):
+    """Dump the database as the owner role, encrypt it and apply the retention policy (#69)."""
+    from app.services.backup_service import BackupError, create_backup, prune
+    try:
+        target = create_backup()
+        click.echo(f"Encrypted backup written: {target.name} ({target.stat().st_size} bytes)")
+        if not no_prune:
+            deleted = prune()
+            click.echo(f"Retention: {len(deleted)} old backup(s) deleted.")
+    except BackupError as error:
+        if error.diagnostic:
+            click.echo(f"Tool output (console only): {error.diagnostic}", err=True)
+        raise click.ClickException(str(error)) from None
+
+
+@click.command("restore-test")
+@click.option("--file", "backup_file", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="An encrypted backup made by backup-db.")
+def restore_test_command(backup_file):
+    """Restore a backup into a scratch database, compare row counts, then drop it (#69).
+
+    Needs DB_SETUP_URL (a role that can create databases) set in the shell, as setup-db-roles does.
+    """
+    from app.services.backup_service import BackupError, restore_test
+    try:
+        restored = restore_test(backup_file)
+    except BackupError as error:
+        if error.diagnostic:
+            click.echo(f"Tool output (console only): {error.diagnostic}", err=True)
+        raise click.ClickException(str(error)) from None
+    click.echo(f"Restore test passed: {len(restored)} tables, {sum(restored.values())} rows.")
+
+
+@click.command("decrypt-backup")
+@click.option("--file", "backup_file", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="An encrypted backup made by backup-db.")
+def decrypt_backup_command(backup_file):
+    """Write a backup's decrypted dump to standard output, for piping into pg_restore (#69).
+
+    It never writes a file itself and refuses a terminal. An operator who holds the key could still
+    redirect the output into a file, so the plaintext's safety depends on how it is piped.
+    """
+    import sys
+
+    from app.services.backup_service import BackupError, decrypt_for_restore
+    if sys.stdout.isatty():
+        raise click.ClickException("Pipe the output into pg_restore; it is never written to a terminal or file.")
+    try:
+        dump = decrypt_for_restore(backup_file)
+    except BackupError as error:
+        raise click.ClickException(str(error)) from None
+    sys.stdout.buffer.write(dump)
+    sys.stdout.buffer.flush()
+
+
 def register_cli_commands(app):
     """Attach project bootstrap CLI commands to the Flask app instance."""
     app.cli.add_command(seed_roles_command)
@@ -439,3 +511,7 @@ def register_cli_commands(app):
     app.cli.add_command(clear_synthetic_audit_data_command)
     app.cli.add_command(train_anomaly_models_command)
     app.cli.add_command(score_anomalies_command)
+    app.cli.add_command(create_backup_key_command)
+    app.cli.add_command(backup_db_command)
+    app.cli.add_command(restore_test_command)
+    app.cli.add_command(decrypt_backup_command)
