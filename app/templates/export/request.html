@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Export | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Export</h1>
+    <p class="lead">Exports need a one-time code sent to your phone. The file contains decrypted information: once you
+        download it, you are responsible for keeping it safe.</p>
+</section>
+
+<section class="panel">
+    <form method="post" action="{{ url_for('export.request_export') }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="export_type"><span class="field-label">Export</span>
+            <select id="export_type" name="export_type"><option value="child_file">One child's file (record id)</option>
+                <option value="class_list">A class list (class id)</option></select></label>
+        <label class="field-group" for="target_id"><span class="field-label">Record id or class id</span>
+            <input id="target_id" name="target_id" type="number" min="1" required></label>
+        {% if classes %}<p class="muted">Classes: {% for c in classes %}<span class="mono">{{ c.id }}</span> = {{ c.label }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+        <fieldset class="field-group"><legend class="field-label">Columns</legend>
+            {% for column in columns %}<label class="checkbox-row"><input type="checkbox" name="columns" value="{{ column }}"> {{ column.replace('_', ' ') }}</label>{% endfor %}
+        </fieldset>
+        <div class="form-actions"><button type="submit" class="primary-button">Send me a code</button></div>
+    </form>
+</section>
+{% endblock %}

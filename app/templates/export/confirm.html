@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Confirm export | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Export <span class="mono">#{{ row.id }}</span></p>
+    <h1>Enter your code</h1>
+    <p class="lead">This code releases exactly this export ({{ row.export_type.replace('_', ' ') }}, id
+        <span class="mono">{{ row.target_id }}</span>, {{ row.columns.split(',') | length }} columns), once.</p>
+</section>
+
+<section class="panel">
+    <form method="post" action="{{ url_for('export.confirm', request_id=row.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="otp_code"><span class="field-label">Code</span>
+            <input id="otp_code" name="otp_code" required inputmode="numeric" autocomplete="one-time-code" maxlength="10"></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Download CSV</button></div>
+    </form>
+</section>
+{% endblock %}

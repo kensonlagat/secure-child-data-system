@@ -81,6 +81,7 @@
                 {% endif %}
                 {{ nav_link('admin.create_record_form', 'Create record', current_endpoint == 'admin.create_record_form') }}
                 {{ nav_link('admin.archive_list', 'Archive', current_endpoint == 'admin.archive_list') }}
+                {{ nav_link('export.export_page', 'Export', request.blueprint == 'export') }}
                 {% if active_portal != 'childrens_home' %}
                 {{ nav_link('admin.list_classes', 'Classes', current_endpoint in ['admin.list_classes', 'admin.class_detail']) }}
                 {{ nav_link('attendance.class_list', 'Attendance', request.blueprint == 'attendance') }}
