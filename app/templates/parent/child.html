@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Child summary | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow"><a href="{{ url_for('parent.home') }}">My children</a></p>
+    <h1>{{ values.full_name }}</h1>
+    <p class="lead">{{ values.class_label or 'No current class' }}</p>
+</section>
+
+<section class="panel" aria-labelledby="attendance-title">
+    <h2 id="attendance-title">Attendance</h2>
+    <p>{{ absences }} absence{{ '' if absences == 1 else 's' }} recorded in the last {{ window }} days.</p>
+</section>
+
+<section class="panel" aria-labelledby="consent-title">
+    <h2 id="consent-title">Consent on file</h2>
+    <ul class="plain-list">
+        {% for consent_type, status in consent.items() %}
+        <li>{{ consent_type.replace('_', ' ') | capitalize }}: {{ {'given': 'Given', 'withdrawn': 'Withdrawn'}.get(status, 'Not recorded') }}</li>
+        {% endfor %}
+    </ul>
+    <p class="muted">To change a consent, contact the school.</p>
+</section>
+{% endblock %}

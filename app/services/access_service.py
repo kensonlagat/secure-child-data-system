@@ -75,7 +75,17 @@ def get_accessible_records(user):
         return base_query.filter(ChildRecord.institution_mode == "childrens_home")
 
     if role_name == "parent_guardian":
-        return _empty_records_query()
+        # Only children with an ACTIVE link to this parent (#67), school records only. Pending
+        # and revoked links give nothing; revoking takes effect on the next request because
+        # the status is read every time.
+        from app.models.guardian_link import GuardianLink
+
+        user_id = getattr(user, "id", None)
+        if user_id is None:
+            return _empty_records_query()
+        linked = select(GuardianLink.child_record_id).where(
+            GuardianLink.guardian_user_id == user_id, GuardianLink.status == "active")
+        return base_query.filter(ChildRecord.institution_mode == "school", ChildRecord.id.in_(linked))
 
     if role_name == "home_manager":
         # Read-only oversight of the children's home (#54 onwards). Writes nothing
@@ -165,6 +175,11 @@ def get_visible_fields(user):
     if role_name == "home_manager":
         # Oversight, not care: no medical notes, allergies or identity numbers.
         return ["id", "full_name", "date_of_birth", "gender", "legal_status", "caseload_worker_id"]
+
+    if role_name == "parent_guardian":
+        # Minimal set (#67). Attendance summary and consent status come from their own services.
+        # Never: medical notes, allergies, safeguarding, legal status, documents, caseload, contacts.
+        return ["id", "full_name", CLASS_LABEL_FIELD]
 
     return []
 
@@ -580,3 +595,11 @@ def get_record_for_report_card(user, record_id):
         ChildRecord.institution_mode == "school",
     ).first()
     return record if can_read_report_card(user, record) else None
+
+
+# --- Parent portal (#67) --------------------------------------------------------------------
+
+
+def can_manage_guardian_links(user):
+    """Creating, verifying and revoking guardian links is administrator-only."""
+    return _get_role_name(user) == "administrator"

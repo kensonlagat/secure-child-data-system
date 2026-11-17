@@ -228,6 +228,7 @@ def create_app(config_name="development"):
     from app.blueprints.documents.routes import documents_bp
     from app.blueprints.photos.routes import photos_bp
     from app.blueprints.report_cards.routes import report_cards_bp
+    from app.blueprints.parent.routes import parent_bp, register_parent_guard
     from app.blueprints.principal.routes import principal_bp
 
     app.register_blueprint(auth_bp)
@@ -253,6 +254,7 @@ def create_app(config_name="development"):
     app.register_blueprint(documents_bp, url_prefix="/documents")
     app.register_blueprint(photos_bp, url_prefix="/photos")
     app.register_blueprint(report_cards_bp, url_prefix="/reports")
+    app.register_blueprint(parent_bp, url_prefix="/parent")
     app.register_blueprint(principal_bp, url_prefix="/principal")
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
@@ -265,5 +267,6 @@ def create_app(config_name="development"):
     from app.middleware.rbac import register_rbac_hooks
 
     register_rbac_hooks(app)
+    register_parent_guard(app)
 
     return app

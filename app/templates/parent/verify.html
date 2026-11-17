@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% set public_layout = true %}
+
+{% block body_class %}auth-page{% endblock %}
+{% block public_portal %}neutral{% endblock %}
+
+{% block title %}Enter your code | Child Data System{% endblock %}
+
+{% block content %}
+<div class="auth-layout">
+    <section class="auth-intro">
+        <p class="eyebrow">Parent portal</p>
+        <h1>Enter your code</h1>
+        <p class="lead">If this number is registered, we have sent a code. It expires in 5 minutes.</p>
+    </section>
+
+    <section class="panel auth-card" aria-labelledby="parent-verify-title">
+        <h2 id="parent-verify-title" class="auth-card-title">One-time code</h2>
+        {% if error %}
+        <div class="notice error" role="alert">{{ error }}</div>
+        {% endif %}
+        <form method="post" action="{{ url_for('parent.verify') }}" class="form-grid">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field-group" for="code">
+                <span class="field-label">Code</span>
+                <input id="code" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+                    autocomplete="one-time-code" autofocus>
+            </label>
+            <div class="form-actions">
+                <button type="submit" class="primary-button">Sign in</button>
+            </div>
+            <p class="auth-links"><a class="action-link" href="{{ url_for('parent.login_form') }}">Request a new code</a></p>
+        </form>
+    </section>
+</div>
+{% endblock %}
