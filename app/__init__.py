@@ -55,6 +55,8 @@ def _refuse_weak_or_missing_keys(app):
     """
     if app.config.get("TESTING"):
         return
+    if not app.config.get("STAFF_SECOND_STEP_REQUIRED"):
+        raise RuntimeError("STAFF_SECOND_STEP_REQUIRED is off. It may only be off in testing (#68).")
     if not (app.config.get("FIELD_ENCRYPTION_KEY") or "").strip():
         raise RuntimeError("FIELD_ENCRYPTION_KEY is not set. Add it to .env before starting the app.")
     if app.debug:

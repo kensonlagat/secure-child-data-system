@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Audit log | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administrator</p>
+    <h1>Audit log</h1>
+    <p class="lead">Every recorded action, newest first. Read-only: entries can't be edited or removed.
+        Opening this page is itself recorded. Unknown sign-in identifiers are shown as a keyed hash, never as typed.</p>
+</section>
+
+<section class="panel" aria-labelledby="audit-filter-title">
+    <h2 id="audit-filter-title">Filter</h2>
+    <form method="get" action="{{ url_for('audit.view_log') }}" class="form-grid two-col">
+        <label class="field-group" for="filter-user">
+            <span class="field-label">User</span>
+            <select id="filter-user" name="user_id">
+                <option value="">Any user</option>
+                {% for user in users %}
+                <option value="{{ user.id }}" {% if filters.user_id == user.id | string %}selected{% endif %}>{{ user.full_name }} ({{ ui.ROLE_LABELS.get(user.role.name, user.role.name) if user.role else 'no role' }})</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="field-group" for="filter-action">
+            <span class="field-label">Action</span>
+            <select id="filter-action" name="action">
+                <option value="">Any action</option>
+                {% for action in actions %}
+                <option value="{{ action }}" {% if filters.action == action %}selected{% endif %}>{{ action }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="field-group" for="filter-type">
+            <span class="field-label">Record type</span>
+            <select id="filter-type" name="target_record_type">
+                <option value="">Any type</option>
+                {% for record_type in record_types %}
+                <option value="{{ record_type }}" {% if filters.target_record_type == record_type %}selected{% endif %}>{{ record_type }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="field-group" for="filter-record">
+            <span class="field-label">Record number</span>
+            <input id="filter-record" name="target_record_id" inputmode="numeric" pattern="[0-9]*" maxlength="9"
+                autocomplete="off" value="{{ filters.target_record_id }}">
+        </label>
+        <label class="field-group" for="filter-from">
+            <span class="field-label">From date</span>
+            <input id="filter-from" name="date_from" type="date" value="{{ filters.date_from }}">
+        </label>
+        <label class="field-group" for="filter-to">
+            <span class="field-label">To date</span>
+            <input id="filter-to" name="date_to" type="date" value="{{ filters.date_to }}">
+        </label>
+        <label class="field-group" for="filter-synthetic">
+            <span class="field-label">Synthetic training rows</span>
+            <select id="filter-synthetic" name="synthetic">
+                <option value="exclude" {% if filters.synthetic in ('', 'exclude') %}selected{% endif %}>Hide</option>
+                <option value="include" {% if filters.synthetic == 'include' %}selected{% endif %}>Show with real rows</option>
+                <option value="only" {% if filters.synthetic == 'only' %}selected{% endif %}>Show only synthetic</option>
+            </select>
+        </label>
+        <label class="field-group" for="filter-per-page">
+            <span class="field-label">Rows per page</span>
+            <select id="filter-per-page" name="per_page">
+                {% for option in paging.options %}
+                <option value="{{ option }}" {% if paging.per_page == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="form-actions">
+            <button type="submit" class="primary-button">Apply filters</button>
+            <a class="secondary-button" href="{{ url_for('audit.view_log') }}">Clear</a>
+        </div>
+    </form>
+</section>
+
+<section class="panel" aria-labelledby="audit-table-title">
+    <div class="section-head">
+        <h2 id="audit-table-title">{{ paging.total }} entr{{ 'y' if paging.total == 1 else 'ies' }}</h2>
+    </div>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="audit-table-title">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th scope="col">Time (UTC)</th>
+                    <th scope="col">User</th>
+                    <th scope="col">Action</th>
+                    <th scope="col">Record</th>
+                    <th scope="col">Details</th>
+                    <th scope="col">IP address</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="mono">{{ row.timestamp.strftime('%Y-%m-%d %H:%M:%S') if row.timestamp else '' }}</td>
+                    <td>
+                        {% if row.user %}{{ row.user }} <span class="muted">({{ ui.ROLE_LABELS.get(row.user_role, row.user_role) }})</span>
+                        {% else %}<span class="muted">No account</span>{% endif %}
+                        {% if row.identifier %}<br><span class="mono muted">{{ row.identifier }}</span>{% endif %}
+                        {% if row.is_synthetic %} <span class="badge">Synthetic</span>{% endif %}
+                    </td>
+                    <td><span class="badge mono">{{ row.action }}</span></td>
+                    <td class="mono">{% if row.target_record_type %}{{ row.target_record_type }}{% if row.target_record_id is not none %} #{{ row.target_record_id }}{% endif %}{% endif %}</td>
+                    <td>{{ row.details or '' }}</td>
+                    <td class="mono">{{ row.ip_address or '' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="empty-state">No audit entries match these filters.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if paging.total > paging.per_page or paging.page > 1 %}
+    <nav class="pagination" aria-label="Pages">
+        {% if paging.prev_url %}<a class="secondary-button" href="{{ paging.prev_url }}" rel="prev">Previous</a>{% endif %}
+        <span class="muted">Page {{ paging.page }} of {{ paging.last_page }}</span>
+        {% if paging.next_url %}<a class="secondary-button" href="{{ paging.next_url }}" rel="next">Next</a>{% endif %}
+    </nav>
+    {% endif %}
+</section>
+{% endblock %}
