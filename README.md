@@ -117,7 +117,7 @@ drawer). Without the key, the backups can't be restored; with only the key, they
 1. Stop the app, so nothing writes while you switch.
 2. As a role that can create databases, create a new, empty database, for example
    `createdb -U postgres child_data_system_restored`. Never restore over the live database.
-3. Decrypt into a pipe and restore. The plaintext dump never touches the disk:
+3. Decrypt into a pipe and restore. `decrypt-backup` never writes a file itself and refuses a terminal:
    ```powershell
    cmd /c "flask decrypt-backup --file <backup> | pg_restore -U postgres -d child_data_system_restored --exit-on-error"
    ```

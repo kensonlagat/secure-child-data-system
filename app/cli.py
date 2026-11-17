@@ -483,7 +483,8 @@ def restore_test_command(backup_file):
 def decrypt_backup_command(backup_file):
     """Write a backup's decrypted dump to standard output, for piping into pg_restore (#69).
 
-    Refuses to write to a terminal, and never writes a file: the plaintext only exists in the pipe.
+    It never writes a file itself and refuses a terminal. An operator who holds the key could still
+    redirect the output into a file, so the plaintext's safety depends on how it is piped.
     """
     import sys
 
