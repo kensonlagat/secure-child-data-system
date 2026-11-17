@@ -18,6 +18,7 @@ from app.models.intake import IntakeRecord
 from app.models.care_plan import CarePlanGoal, CaseNote
 from app.models.court import CourtHearing
 from app.models.health import HealthEntry, MedicationAdministration, MedicationSchedule
+from app.models.family import FamilyTracing, FamilyVisit
 
 __all__ = [
 	"User",
@@ -44,4 +45,6 @@ __all__ = [
 	"HealthEntry",
 	"MedicationSchedule",
 	"MedicationAdministration",
+	"FamilyVisit",
+	"FamilyTracing",
 ]

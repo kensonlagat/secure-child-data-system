@@ -385,3 +385,20 @@ def can_read_health(user, record):
     if can_write_health(user, record):
         return True
     return _is_home_record(record) and _get_role_name(user) == "home_manager" and can_access_record(user, record)
+
+
+# --- Family contact and visits (#58) -----------------------------------------------------------
+
+
+def can_write_family(user, record):
+    """Only the assigned social worker records visits and tracing. Fail closed."""
+    return (_is_home_record(record) and _get_role_name(user) == "social_worker"
+            and getattr(record, "caseload_worker_id", None) == getattr(user, "id", None)
+            and can_access_record(user, record))
+
+
+def can_read_family(user, record):
+    """The assigned social worker and the home manager (read only)."""
+    if can_write_family(user, record):
+        return True
+    return _is_home_record(record) and _get_role_name(user) == "home_manager" and can_access_record(user, record)

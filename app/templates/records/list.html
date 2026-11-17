@@ -116,6 +116,7 @@
                         {% if page_mode == 'childrens_home' and current_user.role and current_user.role.name in ['social_worker', 'home_manager', 'legal_officer'] %}<a class="action-link" href="{{ url_for('care.care_page', record_id=entry['record'].id) }}">Care plan</a>{% endif %}
                         {% if page_mode == 'childrens_home' and current_user.role and current_user.role.name in ['social_worker', 'home_manager', 'legal_officer'] %}<a class="action-link" href="{{ url_for('court.hearings', record_id=entry['record'].id) }}">Court</a>{% endif %}
                         {% if page_mode == 'childrens_home' and current_user.role and current_user.role.name in ['social_worker', 'home_manager', 'administrator'] %}<a class="action-link" href="{{ url_for('health.health_page', record_id=entry['record'].id) }}">Health</a>{% endif %}
+                        {% if page_mode == 'childrens_home' and current_user.role and current_user.role.name in ['social_worker', 'home_manager'] %}<a class="action-link" href="{{ url_for('family.family_page', record_id=entry['record'].id) }}">Family</a>{% endif %}
                         {% if page_mode == 'school' and current_user.role and current_user.role.name in ['school_nurse', 'administrator'] %}<a class="action-link" href="{{ url_for('clinic.visits', record_id=entry['record'].id) }}">Clinic</a>{% endif %}
 
                         {% if current_user.role and current_user.role.name == 'administrator' %}
