@@ -27,7 +27,7 @@ APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records", "attendance_corrections", 
                       "clinic_visits")
 # Tables the app role may update only in these columns (everything else is fixed once written).
 COLUMN_UPDATE_TABLES = {
-    "authorised_collectors": ("is_active", "revoked_by", "revoked_at"),
+    "authorised_collectors": ("status", "decided_by", "decided_at", "is_active", "revoked_by", "revoked_at"),
 }
 MIGRATION_TABLE = "alembic_version"
 PURGE_FUNCTION = "purge_synthetic_audit_entries()"

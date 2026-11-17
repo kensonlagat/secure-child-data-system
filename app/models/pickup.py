@@ -1,8 +1,10 @@
-"""Authorised pickup list (#51).
+"""Authorised pickup list (#51, #112).
 
 Collectors are added or revoked, never edited: to change details, revoke and add again, so
-the history stays complete. The app role may update only the revoke columns (column-level
-grant), never the collector's details.
+the history stays complete. A collector added by a teacher starts `pending` and grants
+nothing at the gate until an administrator confirms it; an administrator's addition is
+`active` at once. The app role may update only the status and decision columns
+(column-level grant), never the collector's details.
 """
 
 from datetime import datetime
@@ -12,6 +14,7 @@ from app.config import BaseConfig
 from app.models.encryption import IntegrityCheckedEncryptedType
 
 RELATIONSHIPS = ("mother", "father", "guardian", "grandparent", "sibling", "relative", "driver", "other")
+COLLECTOR_STATUSES = ("pending", "active", "rejected", "revoked")
 
 
 def _encryption_key():
@@ -29,7 +32,11 @@ class AuthorisedCollector(db.Model):
     national_id_number = db.Column(IntegrityCheckedEncryptedType(db.String, _encryption_key), nullable=False)
     added_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     added_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    # Only `active` collectors appear at the gate (#112).
+    status = db.Column(db.String(10), nullable=False, default="active")
+    decided_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)  # confirmed or rejected by
+    decided_at = db.Column(db.DateTime, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)  # false once rejected or revoked
     revoked_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     revoked_at = db.Column(db.DateTime, nullable=True)
 

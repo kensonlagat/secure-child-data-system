@@ -8,7 +8,12 @@ from app import db
 from app.middleware.rbac import audit_access_denied
 from app.models.pickup import RELATIONSHIPS, AuthorisedCollector
 from app.services import pickup_service
-from app.services.access_service import can_manage_pickup, can_view_collector_id_number, get_record_for_pickup
+from app.services.access_service import (
+    can_confirm_pickup,
+    can_manage_pickup,
+    can_view_collector_id_number,
+    get_record_for_pickup,
+)
 from app.services.audit_service import log_action
 
 pickup_bp = Blueprint("pickup", __name__, template_folder="../../templates")
@@ -30,8 +35,9 @@ def collectors(record_id):
     record = _record_or_404(record_id)
     log_action(user_id=current_user.id, action="pickup_list_viewed", target_record_type="child_record",
                target_record_id=record.id, details="Viewed authorised collectors")
-    return render_template("pickup/list.html", record=record, collectors=pickup_service.active_collectors(record.id),
+    return render_template("pickup/list.html", record=record, collectors=pickup_service.listed_collectors(record.id),
                            can_manage=can_manage_pickup(current_user, record),
+                           can_confirm=can_confirm_pickup(current_user, record),
                            show_id_number=can_view_collector_id_number(current_user), relationships=RELATIONSHIPS)
 
 
@@ -53,13 +59,42 @@ def add_collector(record_id):
         audit_access_denied("Refused to add a collector", status_code=403, target_record_type="child_record",
                             target_record_id=record.id)
         abort(403)
+    confirmed = can_confirm_pickup(current_user, record)  # administrators: active at once
     try:
-        pickup_service.add(current_user, record, *pickup_service.validate(request.form))
-        flash("Collector added.", "success")
+        pickup_service.add(current_user, record, *pickup_service.validate(request.form), confirmed=confirmed)
+        flash("Collector added." if confirmed else
+              "Collector proposed. They can't collect until an administrator confirms them.", "success")
     except pickup_service.PickupError as error:
         db.session.rollback()
         flash(str(error), "error")
     return redirect(url_for("pickup.collectors", record_id=record.id))
+
+
+def _decide(collector_id, confirm):
+    collector = db.session.get(AuthorisedCollector, collector_id)
+    record = _record_or_404(collector.child_record_id if collector else 0)
+    if not can_confirm_pickup(current_user, record):
+        audit_access_denied("Refused to confirm or reject a collector", status_code=403,
+                            target_record_type="child_record", target_record_id=record.id)
+        abort(403)
+    try:
+        pickup_service.decide(current_user, collector, confirm=confirm)
+        flash("Collector confirmed." if confirm else "Collector rejected.", "success")
+    except pickup_service.PickupError as error:
+        flash(str(error), "error")
+    return redirect(url_for("pickup.collectors", record_id=record.id))
+
+
+@pickup_bp.route("/collectors/<int:collector_id>/confirm", methods=["POST"])
+@login_required
+def confirm_collector(collector_id):
+    return _decide(collector_id, confirm=True)
+
+
+@pickup_bp.route("/collectors/<int:collector_id>/reject", methods=["POST"])
+@login_required
+def reject_collector(collector_id):
+    return _decide(collector_id, confirm=False)
 
 
 @pickup_bp.route("/collectors/<int:collector_id>/revoke", methods=["POST"])
