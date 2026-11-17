@@ -95,6 +95,40 @@ run.py                  # Entry point
    python run.py
    ```
 
+## Backups (#69)
+
+Settings in `.env`: `BACKUP_KEY_FILE` (a key file **outside** the project, made once with
+`flask create-backup-key --path <file>`), `BACKUP_DIR` (outside the project) and
+`MIGRATION_DATABASE_URL` (the owner role). PostgreSQL's `bin` folder must be on `PATH`, or set
+`PG_BIN_DIR`.
+
+- `flask backup-db`: counts rows, dumps as `cds_owner`, encrypts in memory, writes
+  `cds-<date>-<time>.dump.enc`, then applies retention (everything from the last 7 days, plus
+  the newest backup of each of the 4 weeks before).
+- `flask restore-test --file <backup>`: restores into the scratch database `cds_restore_test`,
+  checks every table against the row counts stored in the backup, then drops it. Needs
+  `DB_SETUP_URL` (a role that can create databases) set in the shell for that command only.
+
+**Keep a copy of the backup key off this machine** (for example on a USB stick in a locked
+drawer). Without the key, the backups can't be restored; with only the key, they're useless.
+
+### Restoring for real
+
+1. Stop the app, so nothing writes while you switch.
+2. As a role that can create databases, create a new, empty database, for example
+   `createdb -U postgres child_data_system_restored`. Never restore over the live database.
+3. Decrypt into a pipe and restore. The plaintext dump never touches the disk:
+   ```powershell
+   cmd /c "flask decrypt-backup --file <backup> | pg_restore -U postgres -d child_data_system_restored --exit-on-error"
+   ```
+   Use `cmd /c`: Windows PowerShell 5.1 re-encodes binary data piped between programs, which
+   corrupts the dump.
+4. Check it: `flask restore-test --file <backup>` passes for the same file, and spot-check
+   a few records and the latest audit rows with `psql`.
+5. Point `DATABASE_URL` and `MIGRATION_DATABASE_URL` in `.env` at the new database, run
+   `flask setup-db-roles` (with `DB_SETUP_URL` set) and `flask check-db-privileges`, then start
+   the app. Keep the old database until you are sure, then drop it.
+
 ## Git workflow
 
 ```bash
