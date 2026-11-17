@@ -58,6 +58,9 @@ def upload(record_id):
         flash("Photo uploaded.", "success")
     except DocumentError as error:
         db.session.rollback()
+        # Like document_upload_refused: the reason category only, never the file or its name.
+        log_action(user_id=current_user.id, action="child_photo_upload_refused", target_record_type="child_record",
+                   target_record_id=record.id, details=f"Refused photo: {error.reason}")
         flash(str(error), "error")
     endpoint = "school_mode.edit_record" if record.institution_mode == "school" else "childrens_home_mode.edit_record"
     return redirect(url_for(endpoint, record_id=record.id))
