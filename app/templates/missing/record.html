@@ -6,26 +6,40 @@
 {% block content %}
 <section class="hero-card">
     <p class="eyebrow">Missing child <span class="mono">#{{ record.id }}</span></p>
-    <h1>Missing child alert</h1>
+    <h1>{{ record.full_name }}</h1>
     <p class="lead">Raising an alert sends the home manager an immediate SMS (with no child details). The alert stays
         on screen for the manager until it is resolved.</p>
 </section>
 
 {% if alert %}
-<section class="panel" aria-labelledby="open-title">
-    <div class="notice error" role="alert">Open alert raised <span class="mono">{{ alert.raised_at.strftime('%Y-%m-%d %H:%M') }}</span>
-        (UTC). Last seen <span class="mono">{{ alert.last_seen_at.strftime('%Y-%m-%d %H:%M') }}</span>.</div>
-    <h2 id="open-title">Circumstances</h2>
+<section class="panel" aria-labelledby="alert-title">
+    {% if alert.status == 'open' %}
+    <div class="notice error" role="alert">Open alert. Last seen <span class="mono">{{ alert.last_seen_at.strftime('%Y-%m-%d %H:%M') }}</span>.</div>
+    {% else %}
+    <div class="notice info" role="status">Resolved alert. Last seen <span class="mono">{{ alert.last_seen_at.strftime('%Y-%m-%d %H:%M') }}</span>{% if can_see_details and alert.found_at %}, found <span class="mono">{{ alert.found_at.strftime('%Y-%m-%d %H:%M') }}</span>{% endif %}.</div>
+    {% endif %}
+    <h2 id="alert-title">Alert</h2>
+
+    {% if can_see_details %}
+    <h3>Circumstances</h3>
     <p>{{ alert.circumstances }}</p>
     <h3>Actions taken</h3>
     <p>{{ alert.actions_taken or 'None recorded yet.' }}</p>
+    {% if alert.resolution_notes %}<h3>Resolution</h3><p>{{ alert.resolution_notes }}</p>{% endif %}
+    {% if alert.status == 'open' %}
     <form method="post" action="{{ url_for('missing.update_actions', alert_id=alert.id) }}" class="form-grid two-col">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label class="field-group" for="actions_taken"><span class="field-label">Update actions taken {{ ui.lock('medical_notes') }}</span>
             <textarea id="actions_taken" name="actions_taken" required maxlength="2000" rows="3">{{ alert.actions_taken or '' }}</textarea></label>
         <div class="form-actions"><button type="submit" class="secondary-button">Save actions</button></div>
     </form>
-    {% if can_resolve %}
+    {% endif %}
+    {% else %}
+    <p class="muted">The circumstances, actions and resolution are restricted to the person who raised the alert, the
+        home manager and administrators. Please help search using the name and time last seen above.</p>
+    {% endif %}
+
+    {% if can_resolve and alert.status == 'open' %}
     <h3>Resolve</h3>
     <form method="post" action="{{ url_for('missing.resolve', alert_id=alert.id) }}" class="form-grid two-col">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -37,7 +51,9 @@
     </form>
     {% endif %}
 </section>
-{% else %}
+{% endif %}
+
+{% if not alert or alert.status != 'open' %}
 <section class="panel" aria-labelledby="raise-title">
     <h2 id="raise-title">Report this child missing</h2>
     <form method="post" action="{{ url_for('missing.raise_alert', record_id=record.id) }}" class="form-grid two-col">
@@ -46,8 +62,8 @@
             <input id="last_seen_at" name="last_seen_at" type="datetime-local" required></label>
         <label class="field-group" for="circumstances"><span class="field-label">Circumstances {{ ui.lock('medical_notes') }}</span>
             <textarea id="circumstances" name="circumstances" required maxlength="2000" rows="3"></textarea></label>
-        <label class="field-group" for="actions_taken"><span class="field-label">Actions taken so far {{ ui.lock('medical_notes') }}</span>
-            <textarea id="actions_taken" name="actions_taken" maxlength="2000" rows="2"></textarea></label>
+        <label class="field-group" for="actions_taken_new"><span class="field-label">Actions taken so far {{ ui.lock('medical_notes') }}</span>
+            <textarea id="actions_taken_new" name="actions_taken" maxlength="2000" rows="2"></textarea></label>
         <div class="form-actions"><button type="submit" class="primary-button danger">Raise missing alert</button></div>
     </form>
 </section>

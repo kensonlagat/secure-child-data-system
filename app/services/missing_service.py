@@ -38,6 +38,13 @@ def open_alert(child_record_id):
     return MissingChildAlert.query.filter_by(child_record_id=child_record_id, status="open").first()
 
 
+def latest_alert(child_record_id):
+    """The open alert, or else the most recently raised one (so resolved alerts stay visible)."""
+    return open_alert(child_record_id) or (MissingChildAlert.query.filter_by(child_record_id=child_record_id)
+                                           .order_by(MissingChildAlert.raised_at.desc(), MissingChildAlert.id.desc())
+                                           .first())
+
+
 def open_alerts():
     return MissingChildAlert.query.filter_by(status="open").order_by(MissingChildAlert.raised_at).all()
 

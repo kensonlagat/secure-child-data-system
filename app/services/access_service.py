@@ -440,6 +440,17 @@ def get_record_for_missing_alert(user, record_id):
     ).first()
 
 
+def can_view_missing_alert_details(user, alert):
+    """Circumstances, actions taken and resolution notes (#122): only the person who raised the
+    alert, the home manager and administrators. Other home staff see the child's name and when
+    the child was last seen, which is what they need to help search. Applies after resolution too."""
+    if alert is None:
+        return False
+    if _get_role_name(user) in {"home_manager", "administrator"}:
+        return True
+    return getattr(user, "id", None) is not None and alert.raised_by == user.id
+
+
 def can_resolve_missing_alert(user):
     """The home manager and administrators resolve alerts."""
     return _get_role_name(user) in {"home_manager", "administrator"}
