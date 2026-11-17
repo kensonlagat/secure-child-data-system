@@ -99,6 +99,7 @@
                 {{ nav_link('school_mode.records', 'School records', on_school) }}
                 {{ nav_link('attendance.class_list', 'Attendance', request.blueprint == 'attendance') }}
                 {% elif role_name == 'home_manager' %}
+                {{ nav_link('home_overview.overview', 'Overview', request.blueprint == 'home_overview') }}
                 {{ nav_link('childrens_home_mode.records', "Children's home records", on_home_records) }}
                 {% elif role_name == 'legal_officer' %}
                 {{ nav_link('childrens_home_mode.legal_status_requests', 'Legal status requests', on_legal) }}

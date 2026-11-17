@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Home overview | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Home manager</p>
+    <h1>Children's home overview</h1>
+    <p class="lead">Counts and due items. Links open only the pages your role can read.</p>
+</section>
+
+<section class="panel" aria-labelledby="counts-title">
+    <h2 id="counts-title">At a glance</h2>
+    <dl class="detail-list">
+        <dt>Children in the home</dt><dd class="mono">{{ occupancy }}</dd>
+        <dt>Hearings in the next 14 days</dt><dd class="mono">{{ hearings | length }}</dd>
+        <dt>Overdue care plan reviews</dt><dd class="mono">{{ overdue_goals | length }}</dd>
+        <dt>Open missing child alerts</dt><dd class="mono">{{ alerts | length }}</dd>
+        <dt>Aftercare follow-ups due</dt><dd class="mono">{{ aftercare | length }}</dd>
+    </dl>
+</section>
+
+{% if alerts %}
+<section class="panel" aria-labelledby="alerts-title">
+    <h2 id="alerts-title">Open missing alerts</h2>
+    <ul class="plain-list">{% for alert in alerts %}<li><span class="status-pill status-pending_otp">Open</span>
+            <a href="{{ url_for('missing.alert_page', record_id=alert.child_record_id) }}">Record <span class="mono">#{{ alert.child_record_id }}</span></a></li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<section class="panel" aria-labelledby="hearings-title">
+    <h2 id="hearings-title">Court dates due</h2>
+    {% if hearings %}
+    <ul class="plain-list">{% for hearing in hearings %}<li><span class="mono">{{ hearing.hearing_at.strftime('%Y-%m-%d %H:%M') }}</span> ·
+            <a href="{{ url_for('court.hearings', record_id=hearing.child_record_id) }}">Record <span class="mono">#{{ hearing.child_record_id }}</span></a></li>{% endfor %}</ul>
+    {% else %}<p class="muted">None in the next 14 days.</p>{% endif %}
+</section>
+
+<section class="panel" aria-labelledby="reviews-title">
+    <h2 id="reviews-title">Overdue care plan reviews</h2>
+    {% if overdue_goals %}
+    <ul class="plain-list">{% for goal in overdue_goals %}<li>Review was due <span class="mono">{{ goal.review_date.isoformat() }}</span> ·
+            <a href="{{ url_for('care.care_page', record_id=goal.child_record_id) }}">Record <span class="mono">#{{ goal.child_record_id }}</span></a></li>{% endfor %}</ul>
+    {% else %}<p class="muted">No overdue reviews.</p>{% endif %}
+</section>
+
+<section class="panel" aria-labelledby="aftercare-title">
+    <h2 id="aftercare-title">Aftercare due</h2>
+    {% if aftercare %}
+    <ul class="plain-list">{% for followup in aftercare %}<li><span class="mono">{{ followup.due_date.isoformat() }}</span> ·
+            <a href="{{ url_for('placement.placement_page', record_id=followup.placement.child_record_id) }}">Record <span class="mono">#{{ followup.placement.child_record_id }}</span></a></li>{% endfor %}</ul>
+    {% else %}<p class="muted">Nothing due.</p>{% endif %}
+</section>
+{% endblock %}
