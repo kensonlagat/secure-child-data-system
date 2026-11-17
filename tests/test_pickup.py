@@ -1,4 +1,4 @@
-"""Authorised pickup list (#51)."""
+"""Authorised pickup list (#51) and pending collectors (#112)."""
 
 from datetime import date
 
@@ -13,6 +13,7 @@ from app.models.audit_log import AuditLogEntry
 from app.models.child_record import ChildRecord
 from app.models.pickup import AuthorisedCollector
 from app.models.user import Role, User
+from app.services.pickup_service import GUARDIAN_NOTICE
 from class_helpers import put_in_class
 
 PASSWORD = "Password#2026"
@@ -21,6 +22,13 @@ ROLES = {"administrator": "both", "teacher": "school", "teacher2": "school", "pr
 PORTAL = {"both": "school", "school": "school", "childrens_home": "childrens_home"}
 COLLECTOR = {"full_name": "Peter Mwangi (marker-p1ck)", "relationship": "father", "phone_number": "+254712000111",
              "national_id_number": "30481957"}
+
+
+@pytest.fixture(autouse=True)
+def sms(monkeypatch):
+    sent = []
+    monkeypatch.setattr("app.services.sms_service.send_sms", lambda phone, message: sent.append((phone, message)))
+    return sent
 
 
 @pytest.fixture()
@@ -39,7 +47,8 @@ def app(monkeypatch):
                               password_hash=generate_password_hash(PASSWORD), role_id=role.id, is_active=True)
             db.session.add(users[key])
         db.session.flush()
-        mine = ChildRecord(full_name="Amina Achieng", date_of_birth=date(2014, 1, 1), institution_mode="school")
+        mine = ChildRecord(full_name="Amina Achieng", date_of_birth=date(2014, 1, 1), institution_mode="school",
+                           guardian_contact="+254711000222")
         other = ChildRecord(full_name="Other Class", date_of_birth=date(2014, 1, 1), institution_mode="school")
         home = ChildRecord(full_name="Home Child", date_of_birth=date(2012, 1, 1), institution_mode="childrens_home",
                            caseload_worker_id=users["social_worker"].id)
@@ -137,7 +146,7 @@ def test_full_id_number_is_for_administrators_only(app):
 
 
 def test_gate_check_shows_only_what_the_gate_needs(app):
-    add(app, sign_in(app, "teacher"))
+    add(app, sign_in(app, "administrator"))
     html = sign_in(app, "teacher").get(f"/pickup/records/{app.config['MINE']}/check").get_data(as_text=True)
     assert "Peter Mwangi" in html and "father" in html and "…957" in html
     assert "+254712000111" not in html and "30481957" not in html
@@ -145,7 +154,7 @@ def test_gate_check_shows_only_what_the_gate_needs(app):
 
 def test_revoked_collectors_disappear_from_the_gate_check(app):
     teacher = sign_in(app, "teacher")
-    add(app, teacher)
+    add(app, sign_in(app, "administrator"))
     with app.app_context():
         collector_id = AuthorisedCollector.query.one().id
     teacher.post(f"/pickup/collectors/{collector_id}/revoke")
@@ -178,7 +187,7 @@ def test_audit_rows_carry_no_names_phones_or_id_numbers(app):
     teacher.get(f"/pickup/records/{app.config['MINE']}/check")
     with app.app_context():
         details = " ".join(row.details or "" for row in AuditLogEntry.query.all())
-        assert AuditLogEntry.query.filter_by(action="collector_added").count() == 1
+        assert AuditLogEntry.query.filter_by(action="collector_pending").count() == 1  # a teacher proposed it (#112)
         assert AuditLogEntry.query.filter_by(action="pickup_check_viewed").count() == 1
     for secret in ("Mwangi", "+254712000111", "30481957"):
         assert secret not in details
@@ -187,4 +196,117 @@ def test_audit_rows_carry_no_names_phones_or_id_numbers(app):
 def test_collector_table_allows_updates_to_revoke_columns_only():
     from app.db_roles import COLUMN_UPDATE_TABLES
 
-    assert COLUMN_UPDATE_TABLES["authorised_collectors"] == ("is_active", "revoked_by", "revoked_at")
+    assert {"is_active", "revoked_by", "revoked_at"} <= set(COLUMN_UPDATE_TABLES["authorised_collectors"])
+
+
+# --- #112: teacher additions wait for an administrator ------------------------------------------------
+
+
+def only_collector(app):
+    with app.app_context():
+        return AuthorisedCollector.query.one()
+
+
+def gate_html(app, client):
+    return client.get(f"/pickup/records/{app.config['MINE']}/check").get_data(as_text=True)
+
+
+def audit_actions(app):
+    with app.app_context():
+        return [row.action for row in AuditLogEntry.query.order_by(AuditLogEntry.id)]
+
+
+def test_teacher_addition_is_invisible_at_the_gate_until_confirmed(app):
+    teacher = sign_in(app, "teacher")
+    add(app, teacher)
+    assert only_collector(app).status == "pending"
+    assert "Peter Mwangi" not in gate_html(app, teacher)
+    assert "collector_pending" in audit_actions(app)
+
+    sign_in(app, "administrator").post(f"/pickup/collectors/{only_collector(app).id}/confirm")
+
+    assert only_collector(app).status == "active"
+    assert "Peter Mwangi" in gate_html(app, teacher)
+    assert "collector_confirmed" in audit_actions(app)
+
+
+def test_administrator_addition_is_active_immediately(app):
+    admin = sign_in(app, "administrator")
+    add(app, admin)
+    assert only_collector(app).status == "active"
+    assert "Peter Mwangi" in gate_html(app, admin)
+    assert "collector_added" in audit_actions(app) and "collector_pending" not in audit_actions(app)
+
+
+def test_rejected_collectors_never_reach_the_gate(app):
+    teacher = sign_in(app, "teacher")
+    add(app, teacher)
+    sign_in(app, "administrator").post(f"/pickup/collectors/{only_collector(app).id}/reject")
+    collector = only_collector(app)
+    assert (collector.status, collector.is_active) == ("rejected", False)
+    assert "Peter Mwangi" not in gate_html(app, teacher)
+    assert "collector_rejected" in audit_actions(app)
+
+
+@pytest.mark.parametrize("decision", ["confirm", "reject"])
+def test_a_teacher_cannot_confirm_or_reject_their_own_addition(app, decision):
+    teacher = sign_in(app, "teacher")
+    add(app, teacher)
+    response = teacher.post(f"/pickup/collectors/{only_collector(app).id}/{decision}")
+    assert response.status_code == 403
+    assert only_collector(app).status == "pending"
+
+
+def test_principal_cannot_confirm(app):
+    add(app, sign_in(app, "teacher"))
+    assert sign_in(app, "principal").post(f"/pickup/collectors/{only_collector(app).id}/confirm").status_code == 403
+    assert only_collector(app).status == "pending"
+
+
+def test_confirming_twice_or_a_revoked_collector_is_refused(app):
+    admin = sign_in(app, "administrator")
+    add(app, sign_in(app, "teacher"))
+    collector_id = only_collector(app).id
+    admin.post(f"/pickup/collectors/{collector_id}/confirm")
+    admin.post(f"/pickup/collectors/{collector_id}/reject")  # no longer pending: refused
+    assert only_collector(app).status == "active"
+    admin.post(f"/pickup/collectors/{collector_id}/revoke")
+    admin.post(f"/pickup/collectors/{collector_id}/confirm")
+    assert only_collector(app).status == "revoked"
+
+
+@pytest.mark.parametrize("adder", ["teacher", "administrator"])
+def test_every_addition_sends_the_guardian_a_generic_notice(app, sms, adder):
+    add(app, sign_in(app, adder))
+    assert sms == [("+254711000222", GUARDIAN_NOTICE)]
+    assert "pickup_guardian_notice_sent" in audit_actions(app)
+
+
+def test_guardian_notice_names_nobody():
+    for word in ("Peter", "Mwangi", "Amina", "father"):
+        assert word not in GUARDIAN_NOTICE
+    assert GUARDIAN_NOTICE == ("A change was made to your child's authorised pickup list. "
+                               "Contact the school if you did not request it.")
+
+
+def test_sms_failure_never_blocks_the_addition(app, monkeypatch):
+    def broken(phone, message):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr("app.services.sms_service.send_sms", broken)
+    add(app, sign_in(app, "teacher"))
+    assert only_collector(app).status == "pending"
+    assert "pickup_guardian_notice_failed" in audit_actions(app)
+
+
+def test_no_guardian_contact_is_recorded(app, sms):
+    add(app, sign_in(app, "administrator"), "OTHER")
+    assert sms == []
+    assert "pickup_guardian_notice_no_contact" in audit_actions(app)
+
+
+def test_decision_columns_are_in_the_column_update_allowlist():
+    from app.db_roles import COLUMN_UPDATE_TABLES
+
+    assert {"status", "decided_by", "decided_at"} <= set(COLUMN_UPDATE_TABLES["authorised_collectors"])
+    assert "full_name" not in COLUMN_UPDATE_TABLES["authorised_collectors"]

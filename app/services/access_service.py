@@ -258,6 +258,12 @@ def can_view_pickup(user, record):
     return can_manage_pickup(user, record) or _get_role_name(user) == "principal"
 
 
+def can_confirm_pickup(user, record):
+    """Only administrators confirm or reject collectors proposed by teachers (#112), so a
+    teacher can never confirm their own addition."""
+    return _get_role_name(user) == "administrator" and can_manage_pickup(user, record)
+
+
 def can_view_collector_id_number(user):
     """The full national ID number is for administrators; everyone else sees the last 3 characters."""
     return _get_role_name(user) == "administrator"
