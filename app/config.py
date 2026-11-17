@@ -42,6 +42,9 @@ class BaseConfig:
     # nothing is ever hard-deleted automatically.
     RECORD_RETENTION_YEARS = 7
 
+    # Uploads (#66): requests above this are refused with 413 before the app reads them.
+    MAX_CONTENT_LENGTH = 11 * 1024 * 1024
+
     # Field-level encryption key for sensitive child record columns.
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     FIELD_ENCRYPTION_KEY = os.environ.get("FIELD_ENCRYPTION_KEY")

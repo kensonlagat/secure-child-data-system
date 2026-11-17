@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Delete document | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Documents <span class="mono">#{{ record.id }}</span></p>
+    <h1>Confirm deletion</h1>
+    <p class="lead">A code was sent to your phone. Deletion hides the document from everyone; the encrypted file is
+        kept.</p>
+</section>
+<section class="panel">
+    <form method="post" action="{{ url_for('documents.confirm_delete', document_id=document.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="otp_code"><span class="field-label">Code</span>
+            <input id="otp_code" name="otp_code" required inputmode="numeric" autocomplete="one-time-code" maxlength="10"></label>
+        <div class="form-actions"><button type="submit" class="primary-button danger">Delete document</button></div>
+    </form>
+</section>
+{% endblock %}
