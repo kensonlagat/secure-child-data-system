@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Gate check | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Gate check <span class="mono">#{{ record.id }}</span></p>
+    <h1>{{ record.full_name }}</h1>
+    <p class="lead">Release the child only to someone listed here, after checking their ID ends with the characters
+        shown.</p>
+</section>
+
+<section class="panel" aria-labelledby="gate-title">
+    <h2 id="gate-title">{{ collectors | length }} authorised</h2>
+    {% if collectors %}
+    <ul class="plain-list">
+        {% for collector in collectors %}
+        <li><strong>{{ collector.full_name }}</strong> <span class="muted">({{ collector.relationship }}, ID
+                <span class="mono">{{ collector.id_hint }}</span>)</span></li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="notice warning" role="status">No one is authorised to collect this child. Contact the office.</div>
+    {% endif %}
+</section>
+{% endblock %}

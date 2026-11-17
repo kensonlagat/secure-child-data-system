@@ -24,6 +24,10 @@ AUDIT_TABLE = "audit_log_entries"
 # Append-only tables: the app role may read and insert, never update (and nothing is ever
 # deletable). Every future append-only table must be added here when it is created.
 APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records", "attendance_corrections", "absence_alerts")
+# Tables the app role may update only in these columns (everything else is fixed once written).
+COLUMN_UPDATE_TABLES = {
+    "authorised_collectors": ("is_active", "revoked_by", "revoked_at"),
+}
 MIGRATION_TABLE = "alembic_version"
 PURGE_FUNCTION = "purge_synthetic_audit_entries()"
 
@@ -106,12 +110,19 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
                         continue  # the app never touches migration state
                     privileges = (
                         sql.SQL("SELECT, INSERT")
-                        if table in APPEND_ONLY_TABLES
+                        if table in APPEND_ONLY_TABLES or table in COLUMN_UPDATE_TABLES
                         else sql.SQL("SELECT, INSERT, UPDATE")
                     )
                     cursor.execute(
                         sql.SQL("GRANT {} ON public.{} TO {}").format(privileges, sql.Identifier(table), app)
                     )
+                    if table in COLUMN_UPDATE_TABLES:
+                        cursor.execute(
+                            sql.SQL("GRANT UPDATE ({}) ON public.{} TO {}").format(
+                                sql.SQL(", ").join(sql.Identifier(c) for c in COLUMN_UPDATE_TABLES[table]),
+                                sql.Identifier(table), app,
+                            )
+                        )
                 cursor.execute(sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(app))
                 steps.append(
                     f"{app_role}: SELECT, INSERT, UPDATE on app tables; SELECT, INSERT only on "
@@ -222,6 +233,26 @@ def check_privileges(dsn):
             if exists:
                 has_privilege(f"UPDATE on {table} (append-only)", table, "UPDATE", False)
                 has_privilege(f"DELETE on {table} (append-only)", table, "DELETE", False)
+        for table, columns in COLUMN_UPDATE_TABLES.items():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT to_regclass(%s) IS NOT NULL", (f"public.{table}",))
+                exists = cursor.fetchone()[0]
+                if exists:
+                    cursor.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'public' AND table_name = %s", (table,))
+                    all_columns = [row[0] for row in cursor.fetchall()]
+                connection.rollback()
+            if not exists:
+                continue
+            has_privilege(f"table-wide UPDATE on {table}", table, "UPDATE", False)
+            has_privilege(f"DELETE on {table}", table, "DELETE", False)
+            for column in all_columns:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT has_column_privilege(current_user, %s, %s, 'UPDATE')", (table, column))
+                    allowed = cursor.fetchone()[0]
+                    connection.rollback()
+                record(f"UPDATE on {table}.{column}", allowed, column in columns)
     finally:
         connection.close()
     return ok, lines

@@ -233,3 +233,42 @@ def can_read_attendance(user, school_class):
     if can_mark_attendance(user, school_class):
         return True
     return school_class is not None and _get_role_name(user) == "principal"
+
+
+# --- Authorised pickup list (#51) -----------------------------------------------------------
+
+
+def _is_school_record(record):
+    return (record is not None and getattr(record, "institution_mode", None) == "school"
+            and not getattr(record, "is_deleted", True))
+
+
+def can_manage_pickup(user, record):
+    """Administrators (any school record) and teachers (records in their own classes) add and
+    revoke collectors. Everyone else, fail closed."""
+    if not _is_school_record(record):
+        return False
+    return _get_role_name(user) in {"administrator", "teacher"} and can_access_record(user, record)
+
+
+def can_view_pickup(user, record):
+    """Managers, plus principals (read-only oversight of school records)."""
+    if not _is_school_record(record):
+        return False
+    return can_manage_pickup(user, record) or _get_role_name(user) == "principal"
+
+
+def can_view_collector_id_number(user):
+    """The full national ID number is for administrators; everyone else sees the last 3 characters."""
+    return _get_role_name(user) == "administrator"
+
+
+def get_record_for_pickup(user, record_id):
+    """The school record for a pickup page, or None. Lives here (not in a route) because
+    principals read pickup lists without having general record access (hard rule 2)."""
+    record = ChildRecord.query.filter(
+        ChildRecord.id == record_id,
+        ChildRecord.is_deleted.is_(False),
+        ChildRecord.institution_mode == "school",
+    ).first()
+    return record if can_view_pickup(user, record) else None
