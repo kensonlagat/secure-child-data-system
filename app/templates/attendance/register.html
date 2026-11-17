@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Register {{ school_class.label }} | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow"><a href="{{ url_for('attendance.class_list') }}">Attendance</a></p>
+    <h1>{{ school_class.label }}: <span class="mono">{{ register_date.isoformat() }}</span></h1>
+    <p class="lead">{% if is_future %}Registers can't be taken for future dates.
+        {% elif is_past %}This is a past day. Any change needs a reason and is kept as a correction.
+        {% else %}Today's register.{% endif %}</p>
+    <form method="get" class="inline-form" action="{{ url_for('attendance.register', class_id=school_class.id) }}">
+        <label class="visually-hidden" for="date">Date</label>
+        <input id="date" name="date" type="date" value="{{ register_date.isoformat() }}">
+        <button type="submit" class="secondary-button">Open</button>
+    </form>
+</section>
+
+<section class="panel" aria-labelledby="register-title">
+    <h2 id="register-title">{{ children | length }} child{{ '' if children | length == 1 else 'ren' }}</h2>
+    {% if can_mark and not is_future %}
+    <form method="post" action="{{ url_for('attendance.save', class_id=school_class.id, date=register_date.isoformat()) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% endif %}
+        <div class="table-wrap" tabindex="0" role="region" aria-labelledby="register-title">
+            <table class="data-table">
+                <thead><tr><th scope="col">Name</th><th scope="col">Mark</th></tr></thead>
+                <tbody>
+                    {% for child in children %}
+                    <tr>
+                        <td>{{ child.full_name }}</td>
+                        <td>
+                            {% if can_mark and not is_future %}
+                            <label class="visually-hidden" for="status-{{ child.id }}">Mark for this child</label>
+                            <select id="status-{{ child.id }}" name="status_{{ child.id }}">
+                                {% for status in statuses %}
+                                <option value="{{ status }}" {% if marks.get(child.id, 'present') == status %}selected{% endif %}>{{ status | capitalize }}</option>
+                                {% endfor %}
+                            </select>
+                            {% else %}{{ (marks.get(child.id) or 'not marked') | capitalize }}{% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="2" class="empty-state">No children are enrolled in this class.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% if can_mark and not is_future %}
+        {% if is_past %}
+        <label class="field-group" for="reason">
+            <span class="field-label">Reason for changing a past day</span>
+            <input id="reason" name="reason" maxlength="300" required autocomplete="off">
+        </label>
+        {% endif %}
+        <div class="form-actions"><button type="submit" class="primary-button">Save register</button></div>
+    </form>
+    {% endif %}
+</section>
+{% endblock %}

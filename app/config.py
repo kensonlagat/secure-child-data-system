@@ -30,6 +30,10 @@ class BaseConfig:
     # CSRF failures (#101) use the same writer and window, with this per-user cap.
     CSRF_FAILURE_AUDIT_CAP_PER_WINDOW = 20
 
+    # Attendance (#50): this many absences within the window send one guardian SMS.
+    ATTENDANCE_ABSENCE_THRESHOLD = 3
+    ATTENDANCE_ALERT_WINDOW_DAYS = 30
+
     # Field-level encryption key for sensitive child record columns.
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     FIELD_ENCRYPTION_KEY = os.environ.get("FIELD_ENCRYPTION_KEY")

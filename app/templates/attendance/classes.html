@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Attendance</p>
+    <h1>Daily registers</h1>
+    <p class="lead">One register per class per day. Changes after the day need a reason and are kept as corrections.</p>
+</section>
+
+<section class="panel" aria-labelledby="classes-title">
+    <h2 id="classes-title">{{ classes | length }} class{{ '' if classes | length == 1 else 'es' }}</h2>
+    {% if classes %}
+    <ul class="plain-list">
+        {% for school_class in classes %}
+        <li><a class="secondary-button" href="{{ url_for('attendance.register', class_id=school_class.id, date=today.isoformat()) }}">{{ school_class.label }} ({{ school_class.academic_year }}): today's register</a></li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No classes to show.</p>
+    {% endif %}
+</section>
+{% endblock %}
