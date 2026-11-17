@@ -21,6 +21,7 @@ from app.models.health import HealthEntry, MedicationAdministration, MedicationS
 from app.models.family import FamilyTracing, FamilyVisit
 from app.models.placement import AftercareFollowUp, Placement
 from app.models.missing import MissingChildAlert
+from app.models.export import ExportRequest
 
 __all__ = [
 	"User",
@@ -52,4 +53,5 @@ __all__ = [
 	"Placement",
 	"AftercareFollowUp",
 	"MissingChildAlert",
+	"ExportRequest",
 ]
