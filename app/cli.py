@@ -425,7 +425,7 @@ def check_db_privileges_command():
     from app.rls import context_values
 
     ok, lines = check_privileges(_libpq_dsn(current_app.config["SQLALCHEMY_DATABASE_URI"]),
-                                 signed_context=context_values("", "system", ""))
+                                 sign_context=lambda pid: context_values("", "system", "", pid=pid))
     for line in lines:
         click.echo(line)
     if not ok:

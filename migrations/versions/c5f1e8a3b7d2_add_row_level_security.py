@@ -18,9 +18,17 @@ PostgreSQL only (SQLite has no row-level security; the test suite's SQLite runs 
   - audit_log_entries: INSERT for any valid context, SELECT for administrator and system;
   - guardian_links: administrators and system, plus a parent's own links;
   - every other table with a child_record_id column (except enrolments, which the teacher
-    policy reads): rows whose child is visible under the child_records policy.
+    policy reads): rows whose child is visible under the child_records policy;
+  - child data in tables without child_record_id (CHILD_DATA_VIA_PARENT in app/db_roles.py,
+    the same list check-db-privileges uses): rows whose parent row is visible, so the parent's
+    policy applies (report_card_entries via report_cards, document_blobs via documents, ...).
+- The signed context is bound to the connection: the signed message ends with the backend
+  process id, and app_context_valid() compares it with its own pg_backend_pid(), so a context
+  read from another session (pg_stat_activity) is useless.
 """
 from alembic import op
+
+from app.db_roles import CHILD_DATA_VIA_PARENT
 
 # revision identifiers, used by Alembic.
 revision = 'c5f1e8a3b7d2'
@@ -107,7 +115,8 @@ BEGIN
         RETURN false;
     END IF;
     RETURN s = encode(public.app_hmac_sha256(
-        k, convert_to(coalesce(u, '') || '|' || r || '|' || coalesce(m, '') || '|' || i, 'UTF8')), 'hex');
+        k, convert_to(coalesce(u, '') || '|' || r || '|' || coalesce(m, '') || '|' || i
+                      || '|' || pg_backend_pid()::text, 'UTF8')), 'hex');
 END $$;
 
 CREATE FUNCTION public.app_user_id() RETURNS integer
@@ -193,7 +202,22 @@ BEGIN
                        '((SELECT public.app_context_valid()) AND child_record_id IN (SELECT id FROM public.child_records))', t);
     END LOOP;
 END $$;
-"""
+""" + "".join(f"""
+DO $$
+BEGIN
+    IF to_regclass('public.{table}') IS NOT NULL THEN
+        ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.{table} FORCE ROW LEVEL SECURITY;
+        CREATE POLICY parent_scope_select ON public.{table} FOR SELECT
+            USING ({VALID} AND {fk} IN (SELECT id FROM public.{parent}));
+        CREATE POLICY parent_scope_update ON public.{table} FOR UPDATE
+            USING ({VALID} AND {fk} IN (SELECT id FROM public.{parent}))
+            WITH CHECK ({VALID} AND {fk} IN (SELECT id FROM public.{parent}));
+        CREATE POLICY parent_scope_insert ON public.{table} FOR INSERT
+            WITH CHECK ({VALID} AND {fk} IN (SELECT id FROM public.{parent}));
+    END IF;
+END $$;
+""" for table, (fk, parent) in CHILD_DATA_VIA_PARENT.items())
 
 DROP_POLICIES = """
 DO $$
@@ -201,7 +225,8 @@ DECLARE p record;
 BEGIN
     FOR p IN
         SELECT schemaname, tablename, policyname FROM pg_policies
-        WHERE schemaname = 'public' AND (policyname LIKE 'child_scope_%' OR policyname LIKE 'child_records_%'
+        WHERE schemaname = 'public' AND (policyname LIKE 'child_scope_%' OR policyname LIKE 'parent_scope_%'
+              OR policyname LIKE 'child_records_%'
               OR policyname LIKE 'audit_%' OR policyname LIKE 'guardian_links_%')
     LOOP
         EXECUTE format('DROP POLICY %I ON %I.%I', p.policyname, p.schemaname, p.tablename);

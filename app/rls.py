@@ -7,10 +7,19 @@ connection):
     app.user_id, app.role, app.mode, app.issued_at, app.context_sig
 
 The signature is an HMAC-SHA256, under the #73 subkey `rls-context`, of
-"user_id|role|mode|issued_at". The database recomputes it in app_context_valid() with the copy
-of the key that `flask setup-db-roles` stores in an owner-only table, and refuses a context
-that is unsigned, forged or older than 5 minutes. Injected SQL can call set_config, but without
-the key it can't produce a valid signature, so it sees no rows.
+"user_id|role|mode|issued_at|pid", where pid is the PostgreSQL backend process id of the
+connection the context is set on. The database recomputes it in app_context_valid() with the
+copy of the key that `flask setup-db-roles` stores in an owner-only table and its OWN
+pg_backend_pid(), and refuses a context that is unsigned, forged, older than 5 minutes, or
+copied from another connection. Injected SQL can call set_config, but without the key it can't
+produce a valid signature, so it sees no rows. Binding to the pid matters because every app
+connection runs as cds_app, and a role can read pg_stat_activity.query for its own other
+sessions, which can show another request's set_config call with its live signature.
+
+The pid is read once per physical connection and cached in connection.info. This assumes each
+app connection is a real backend (no transaction-pooling proxy such as PgBouncer in
+transaction mode, which would change the backend under the app: contexts would then fail
+closed, showing no rows).
 
 Who the request is comes from the server's own state, never from request input:
 - a signed-in request: Flask-Login's user id in the signed session cookie, with the role read
@@ -33,16 +42,27 @@ from app.services.key_derivation import derive_subkey
 SETTINGS = ("app.user_id", "app.role", "app.mode", "app.issued_at", "app.context_sig")
 
 
-def sign(user_id, role, mode, issued_at):
-    message = f"{user_id}|{role}|{mode}|{issued_at}".encode()
+def sign(user_id, role, mode, issued_at, pid):
+    message = f"{user_id}|{role}|{mode}|{issued_at}|{pid}".encode()
     return hmac.new(derive_subkey("rls-context"), message, hashlib.sha256).hexdigest()
 
 
-def context_values(user_id, role, mode, issued_at=None):
+def context_values(user_id, role, mode, *, pid, issued_at=None):
+    """pid: pg_backend_pid() of the connection the context will be set on (required)."""
     issued_at = str(int(issued_at if issued_at is not None else time.time()))
     user_id, mode = str(user_id or ""), mode or ""
     return {"app.user_id": user_id, "app.role": role, "app.mode": mode, "app.issued_at": issued_at,
-            "app.context_sig": sign(user_id, role, mode, issued_at)}
+            "app.context_sig": sign(user_id, role, mode, issued_at, int(pid))}
+
+
+def backend_pid(connection):
+    """pg_backend_pid() for this physical connection, read once and cached in connection.info
+    (which lives as long as the pooled DBAPI connection)."""
+    pid = connection.info.get("rls_backend_pid")
+    if pid is None:
+        pid = int(connection.execute(text("SELECT pg_backend_pid()")).scalar())
+        connection.info["rls_backend_pid"] = pid
+    return pid
 
 
 def apply_context(connection, values):
@@ -91,7 +111,7 @@ def _after_begin(session_, transaction, connection):
     if not current_app.config.get("RLS_CONTEXT_ENABLED", True):
         return
     user_id, role, mode = current_identity(connection)
-    apply_context(connection, context_values(user_id, role, mode))
+    apply_context(connection, context_values(user_id, role, mode, pid=backend_pid(connection)))
 
 
 def register_rls_context():

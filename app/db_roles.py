@@ -47,6 +47,22 @@ RLS_APP_FUNCTIONS = ("app_context_valid()",
                      "audit_stats(text, timestamp, integer, boolean, text, text, text, text, integer, boolean)",
                      "parent_has_active_link(integer)")
 RLS_TABLES = ("child_records", "audit_log_entries", "guardian_links")
+# Child data in tables WITHOUT a child_record_id column, scoped through their parent row:
+# table -> (foreign key column, parent table). The parent's own policy then applies. The one
+# list used by both the row-level security migration and check-db-privileges. Add a table here
+# only together with a migration that creates its policies (the #19 migration skips entries
+# whose table doesn't exist yet).
+CHILD_DATA_VIA_PARENT = {
+    "report_card_entries": ("report_card_id", "report_cards"),
+    "document_blobs": ("document_id", "documents"),
+    "medication_administrations": ("schedule_id", "medication_schedules"),
+    "aftercare_followups": ("placement_id", "placements"),
+    "attendance_corrections": ("mark_id", "attendance_marks"),
+}
+# Tables that reference forced tables but deliberately have no policy of their own:
+# enrolments is read by the teacher branch of the child_records policy (a policy on it that read
+# child_records would recurse); anomaly_alerts references audit rows and is administrator-only.
+RLS_REFERENCING_EXEMPT = ("enrolments", "anomaly_alerts")
 PURGE_FUNCTION = "purge_synthetic_audit_entries()"
 
 
@@ -196,14 +212,21 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
     return steps
 
 
-def check_privileges(dsn, signed_context=None):
+def check_privileges(dsn, sign_context=None):
     """Connect as the configured app role and prove the restrictions. Returns (ok, lines).
 
-    signed_context: the settings of a valid signed `system` context (from app/rls.py), used to
-    prove that inserts work with a context and are refused without one (#19)."""
+    sign_context: a function taking a backend process id and returning the settings of a valid
+    signed `system` context for that connection (app/rls.py). Used to prove that inserts work
+    with a context and are refused without one (#19)."""
     lines, ok = [], True
     connection = psycopg2.connect(dsn)
+    signed_context = None
     try:
+        if sign_context is not None:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                signed_context = sign_context(cursor.fetchone()[0])
+            connection.rollback()
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT current_user, rolsuper, rolcreaterole, rolcreatedb, rolbypassrls "
@@ -326,12 +349,25 @@ def _check_rls(connection, record):
             "JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
             "WHERE c.table_schema = 'public' AND c.column_name = 'child_record_id' AND t.table_type = 'BASE TABLE' "
             "AND c.table_name <> 'enrolments'")
-        tables = sorted(set(RLS_TABLES) | {row[0] for row in cursor.fetchall()})
+        tables = sorted(set(RLS_TABLES) | {row[0] for row in cursor.fetchall()} | set(CHILD_DATA_VIA_PARENT))
         for table in tables:
             cursor.execute("SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
                            "WHERE oid = to_regclass(%s)", (f"public.{table}",))
-            enabled, forced = cursor.fetchone()
+            row = cursor.fetchone()
+            enabled, forced = row if row and row[0] is not None else (False, False)  # missing = unforced
             record(f"skipping row-level security (ENABLE and FORCE) on {table}", not (enabled and forced), False)
+        # Any other table that points at a forced table (child data reached through a parent row)
+        # must be forced too, or be listed as deliberately exempt.
+        cursor.execute(
+            "SELECT DISTINCT src.relname FROM pg_constraint con "
+            "JOIN pg_class src ON src.oid = con.conrelid JOIN pg_class ref ON ref.oid = con.confrelid "
+            "JOIN pg_namespace n ON n.oid = src.relnamespace "
+            "WHERE con.contype = 'f' AND n.nspname = 'public' AND ref.relforcerowsecurity "
+            "AND NOT src.relforcerowsecurity ORDER BY 1")
+        for (table,) in cursor.fetchall():
+            if table not in RLS_REFERENCING_EXEMPT:
+                record(f"leaving {table} (references a row-level-secured table) without row-level security",
+                       True, False)
         cursor.execute("SELECT has_table_privilege(current_user, 'public.rls_context_key', 'SELECT')")
         record("SELECT on rls_context_key", cursor.fetchone()[0], False)
         cursor.execute("SELECT count(*) FROM child_records")
