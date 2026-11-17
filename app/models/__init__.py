@@ -15,6 +15,7 @@ from app.models.attendance import AbsenceAlert, AttendanceCorrection, Attendance
 from app.models.pickup import AuthorisedCollector
 from app.models.clinic import ClinicVisit
 from app.models.intake import IntakeRecord
+from app.models.care_plan import CarePlanGoal, CaseNote
 
 __all__ = [
 	"User",
@@ -35,4 +36,6 @@ __all__ = [
 	"AuthorisedCollector",
 	"ClinicVisit",
 	"IntakeRecord",
+	"CarePlanGoal",
+	"CaseNote",
 ]

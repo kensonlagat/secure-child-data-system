@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Care plan | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Care plan <span class="mono">#{{ record.id }}</span></p>
+    <h1>Care plan and case notes</h1>
+    <p class="lead">Goals, reviews and dated case notes. Notes can't be edited: add a new note to correct one.</p>
+</section>
+
+<section class="panel" aria-labelledby="goals-title">
+    <h2 id="goals-title">Goals</h2>
+    {% if goals %}
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="goals-title">
+        <table class="data-table">
+            <thead><tr><th scope="col">Goal {{ ui.lock('medical_notes') }}</th><th scope="col">Review</th><th scope="col">Status</th>
+                    {% if can_write %}<th scope="col">Update</th>{% endif %}</tr></thead>
+            <tbody>
+                {% for goal in goals %}
+                <tr>
+                    <td>{{ goal.goal }}</td>
+                    <td class="mono">{{ goal.review_date.isoformat() }}{% if goal.is_overdue %} <span class="status-pill status-pending_otp">Review overdue</span>{% endif %}</td>
+                    <td>{{ goal.status | capitalize }}</td>
+                    {% if can_write %}
+                    <td><form method="post" class="inline-form" action="{{ url_for('care.update_goal', goal_id=goal.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <label class="visually-hidden" for="status-{{ goal.id }}">Status</label>
+                            <select id="status-{{ goal.id }}" name="status">{% for status in statuses %}<option value="{{ status }}" {% if goal.status == status %}selected{% endif %}>{{ status | capitalize }}</option>{% endfor %}</select>
+                            <label class="visually-hidden" for="review-{{ goal.id }}">Review date</label>
+                            <input id="review-{{ goal.id }}" name="review_date" type="date" value="{{ goal.review_date.isoformat() }}">
+                            <button type="submit" class="secondary-button">Save</button></form></td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">No goals yet.</p>
+    {% endif %}
+    {% if can_write %}
+    <form method="post" action="{{ url_for('care.add_goal', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="goal"><span class="field-label">New goal {{ ui.lock('medical_notes') }}</span>
+            <input id="goal" name="goal" required maxlength="500" autocomplete="off"></label>
+        <label class="field-group" for="review_date"><span class="field-label">Review date</span>
+            <input id="review_date" name="review_date" type="date" required></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Add goal</button></div>
+    </form>
+    {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="notes-title">
+    <h2 id="notes-title">Case notes</h2>
+    {% if can_write %}
+    <form method="post" action="{{ url_for('care.add_note', record_id=record.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="note_date"><span class="field-label">Date</span>
+            <input id="note_date" name="note_date" type="date" required></label>
+        <label class="field-group" for="category"><span class="field-label">Category</span>
+            <select id="category" name="category">{% for category in categories %}<option value="{{ category }}">{{ category | capitalize }}</option>{% endfor %}</select></label>
+        <label class="field-group" for="body"><span class="field-label">Note {{ ui.lock('medical_notes') }}</span>
+            <textarea id="body" name="body" required maxlength="4000" rows="4"></textarea></label>
+        <label class="field-group" for="legal_summary"><span class="field-label">Legal summary (optional; the only part legal officers see) {{ ui.lock('medical_notes') }}</span>
+            <textarea id="legal_summary" name="legal_summary" maxlength="500" rows="2"></textarea></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Add note</button></div>
+    </form>
+    {% endif %}
+    {% for note in notes %}
+    <article class="note-entry">
+        <p class="muted"><span class="mono">{{ note.note_date.isoformat() }}</span> · {{ note.category | capitalize }} · {{ note.author.full_name }}</p>
+        <p>{{ note.body }}</p>
+        {% if note.legal_summary %}<p class="muted">Legal summary: {{ note.legal_summary }}</p>{% endif %}
+    </article>
+    {% else %}
+    <p class="muted">No case notes yet.</p>
+    {% endfor %}
+</section>
+{% endblock %}

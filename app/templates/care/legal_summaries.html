@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Legal summaries | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Care plan <span class="mono">#{{ record.id }}</span></p>
+    <h1>Legal summaries</h1>
+    <p class="lead">Only the legal-relevant summaries the social worker wrote. Care plan goals and case note text are
+        not shown to legal officers.</p>
+</section>
+
+<section class="panel" aria-labelledby="summaries-title">
+    <h2 id="summaries-title">{{ summaries | length }} summar{{ 'y' if summaries | length == 1 else 'ies' }}</h2>
+    {% for note in summaries %}
+    <article class="note-entry">
+        <p class="muted"><span class="mono">{{ note.note_date.isoformat() }}</span></p>
+        <p>{{ note.legal_summary }}</p>
+    </article>
+    {% else %}
+    <p class="muted">No legal summaries yet.</p>
+    {% endfor %}
+</section>
+{% endblock %}
