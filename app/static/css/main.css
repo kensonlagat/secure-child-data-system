@@ -1344,3 +1344,8 @@ body.portal-locked .auth-card .primary-button:hover {
     border-radius: var(--radius-md);
     margin-top: var(--space-3);
 }
+
+/* Safeguarding concern text keeps the reporter's line breaks (#62). */
+.pre-wrap {
+    white-space: pre-wrap;
+}

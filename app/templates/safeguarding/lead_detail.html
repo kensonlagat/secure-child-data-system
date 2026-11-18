@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Safeguarding concern | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Safeguarding concern <span class="mono">#{{ concern.id }}</span> · {{ mode_labels[concern.institution_mode] }}</p>
+    <h1>{{ concern.urgency | capitalize }} · {{ concern.status | capitalize }}</h1>
+    <p class="lead">Raised <span class="mono">{{ concern.created_at.strftime('%Y-%m-%d %H:%M') }}</span>{% if concern.involves_staff %}. The reporter says it involves a member of staff{% endif %}.
+        This view has been recorded in the audit log.</p>
+</section>
+
+<section class="panel" aria-labelledby="child-title">
+    <h2 id="child-title">Child</h2>
+    {% if concern.child_record_id %}
+    <p>{{ child_name or 'Record' }} <span class="mono">#{{ concern.child_record_id }}</span></p>
+    {% else %}
+    <p class="muted">No child record is linked yet. It can be linked once.</p>
+    {% if concern.status != 'closed' %}
+    <form method="post" action="{{ url_for('safeguarding.link_child', concern_id=concern.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="link_child"><span class="field-label">Child record number</span>
+            <input id="link_child" name="child_record_id" inputmode="numeric" required></label>
+        <div class="form-actions"><button type="submit" class="secondary-button">Link child</button></div>
+    </form>
+    {% endif %}
+    {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="narrative-title">
+    <h2 id="narrative-title">Report {{ ui.lock('medical_notes') }}</h2>
+    {% if narrative == unreadable %}
+    <div class="notice error" role="alert">This entry could not be read.</div>
+    {% else %}
+    <p class="pre-wrap">{{ narrative }}</p>
+    {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="actions-title">
+    <h2 id="actions-title">Actions</h2>
+    {% if actions %}
+    <ul class="plain-list">
+        {% for action in actions %}
+        <li><span class="mono">{{ action.created_at.strftime('%Y-%m-%d %H:%M') }}</span> · {{ action.action_type | replace('_', ' ') | capitalize }}
+            {% if action.referral_agency %}({{ action.referral_agency | replace('_', ' ') }}){% endif %}
+            {% if action.body == unreadable %}<span class="notice error">This entry could not be read.</span>
+            {% elif action.body %}<p class="pre-wrap">{{ action.body }}</p>{% endif %}</li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">Nothing recorded yet.</p>
+    {% endif %}
+
+    {% if concern.status != 'closed' %}
+    <form method="post" action="{{ url_for('safeguarding.add_action', concern_id=concern.id) }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="action_type"><span class="field-label">Record</span>
+            <select id="action_type" name="action_type">
+                <option value="note">A note</option>
+                {% if next_statuses %}<option value="status_change">A status change</option>{% endif %}
+                <option value="referral">A referral</option>
+                <option value="closure">Closing the concern</option>
+            </select></label>
+        {% if next_statuses %}
+        <label class="field-group" for="status"><span class="field-label">New status (for a status change)</span>
+            <select id="status" name="status">{% for s in next_statuses %}<option value="{{ s }}">{{ s | capitalize }}</option>{% endfor %}</select></label>
+        {% endif %}
+        <label class="field-group" for="referral_agency"><span class="field-label">Referred to (for a referral)</span>
+            <select id="referral_agency" name="referral_agency"><option value="">Choose</option>
+                {% for agency in agencies %}<option value="{{ agency }}">{{ agency | replace('_', ' ') | capitalize }}</option>{% endfor %}</select></label>
+        <label class="field-group" for="body"><span class="field-label">Note {{ ui.lock('medical_notes') }}</span>
+            <textarea id="body" name="body" maxlength="2000" rows="3"></textarea></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Save</button></div>
+    </form>
+    {% endif %}
+</section>
+{% endblock %}

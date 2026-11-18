@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}My concerns | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Safeguarding</p>
+    <h1>Concerns I reported</h1>
+    <p class="lead">Status and time only. The safeguarding lead handles the details.</p>
+    <p><a class="secondary-button" href="{{ url_for('safeguarding.new_concern') }}">Report a concern</a></p>
+</section>
+
+<section class="panel" aria-labelledby="mine-title">
+    <h2 id="mine-title">{{ items | length }} reported</h2>
+    {% if items %}
+    <table class="data-table">
+        <thead><tr><th scope="col">Concern</th><th scope="col">Raised</th><th scope="col">Area</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+            {% for item in items %}
+            <tr><td class="mono">#{{ item.id }}</td><td class="mono">{{ item.raised_at | replace('T', ' ') }}</td>
+                <td>{{ mode_labels[item.mode] }}</td>
+                <td>{{ item.status | capitalize }}{% if item.mode in no_lead_modes and item.status == 'open' %} (no safeguarding lead is set yet; administrators have been told){% endif %}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted empty-state">You haven't reported any concerns.</p>
+    {% endif %}
+</section>
+{% endblock %}

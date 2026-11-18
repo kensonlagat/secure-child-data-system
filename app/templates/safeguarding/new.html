@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+
+{% block title %}Report a concern | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Safeguarding</p>
+    <h1>Report a safeguarding concern</h1>
+    <p class="lead">Your report goes straight to the designated safeguarding lead. After you submit it you will see
+        its status, but not the report itself: only the safeguarding lead reads it.</p>
+</section>
+
+{% for mode in no_lead_modes %}
+<div class="notice error" role="alert">No safeguarding lead is set up for {{ mode_labels[mode] | lower }} concerns yet.
+    Your report is still saved, and administrators will be told it is waiting.</div>
+{% endfor %}
+
+<section class="panel" aria-labelledby="concern-title">
+    <h2 id="concern-title">What happened</h2>
+    <form method="post" action="{{ url_for('safeguarding.raise_concern') }}" class="form-grid two-col">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="child_record_id"><span class="field-label">Child</span>
+            <select id="child_record_id" name="child_record_id">
+                <option value="">Child not in my list (the lead will link the record)</option>
+                {% for record in records %}
+                <option value="{{ record.id }}">{{ record.full_name }} (#{{ record.id }})</option>
+                {% endfor %}
+            </select></label>
+        {% if not own_mode %}
+        <label class="field-group" for="institution_mode"><span class="field-label">If no child is chosen: which part of the organisation</span>
+            <select id="institution_mode" name="institution_mode">
+                {% for mode in modes %}<option value="{{ mode }}">{{ mode_labels[mode] }}</option>{% endfor %}
+            </select></label>
+        {% endif %}
+        <label class="field-group" for="urgency"><span class="field-label">How urgent</span>
+            <select id="urgency" name="urgency" required>
+                {% for urgency in urgencies %}<option value="{{ urgency }}">{{ urgency | capitalize }}</option>{% endfor %}
+            </select></label>
+        <label class="field-group" for="involves_staff"><span class="field-label">Does it involve a member of staff?</span>
+            <select id="involves_staff" name="involves_staff">
+                <option value="no">No</option><option value="yes">Yes</option>
+            </select></label>
+        <label class="field-group" for="narrative"><span class="field-label">What you saw or were told {{ ui.lock('medical_notes') }}</span>
+            <textarea id="narrative" name="narrative" required maxlength="5000" rows="8"></textarea></label>
+        <div class="form-actions"><button type="submit" class="primary-button">Send to the safeguarding lead</button></div>
+    </form>
+</section>
+{% endblock %}

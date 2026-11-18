@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Safeguarding concerns (metadata) | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Administration</p>
+    <h1>Safeguarding concerns</h1>
+    <p class="lead">Metadata only: who reported, when, the area and the status. The reports themselves are for the
+        designated safeguarding leads.</p>
+</section>
+
+{% for mode in no_lead %}
+<div class="notice error" role="alert">No safeguarding lead is set for {{ mode_labels[mode] | lower }} concerns.
+    Set one in Users so that new concerns are read.</div>
+{% endfor %}
+
+<section class="panel" aria-labelledby="untriaged-title">
+    <h2 id="untriaged-title">Waiting more than 24 hours</h2>
+    <ul class="plain-list">
+        {% for mode, count in untriaged.items() %}<li>{{ mode_labels[mode] }}: <strong>{{ count }}</strong> untriaged</li>{% endfor %}
+    </ul>
+</section>
+
+<section class="panel" aria-labelledby="meta-title">
+    <h2 id="meta-title">{{ rows | length }} concern{{ '' if rows | length == 1 else 's' }}</h2>
+    {% if rows %}
+    <table class="data-table">
+        <thead><tr><th scope="col">Concern</th><th scope="col">Raised</th><th scope="col">Reported by</th><th scope="col">Area</th><th scope="col">Status</th><th scope="col">Involves staff</th></tr></thead>
+        <tbody>
+            {% for row in rows %}
+            <tr><td class="mono">#{{ row.id }}</td><td class="mono">{{ row.raised_at | replace('T', ' ') }}</td><td>{{ row.reporter }}</td>
+                <td>{{ mode_labels[row.mode] }}</td><td>{{ row.status | capitalize }}</td><td>{{ 'Yes' if row.involves_staff else 'No' }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted empty-state">No concerns.</p>
+    {% endif %}
+</section>
+{% endblock %}

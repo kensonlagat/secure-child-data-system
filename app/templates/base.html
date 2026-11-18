@@ -107,6 +107,17 @@
                 {{ nav_link('childrens_home_mode.legal_status_requests', 'Legal status requests', on_legal) }}
                 {{ nav_link('childrens_home_mode.records', 'Records', on_home_records) }}
                 {% endif %}
+                {% if role_name and role_name != 'parent_guardian' %}
+                {# Safeguarding concerns (#62). Display only: access_service.py decides access. #}
+                <p class="nav-heading">Safeguarding</p>
+                {{ nav_link('safeguarding.new_concern', 'Report a concern', current_endpoint == 'safeguarding.new_concern') }}
+                {{ nav_link('safeguarding.my_concerns', 'My concerns', current_endpoint == 'safeguarding.my_concerns') }}
+                {% if role_name == 'administrator' %}
+                {{ nav_link('safeguarding.admin_concerns', 'Concerns (metadata)', current_endpoint == 'safeguarding.admin_concerns') }}
+                {% elif current_user.is_safeguarding_lead %}
+                {{ nav_link('safeguarding.lead_list', 'Concerns to review', current_endpoint in ['safeguarding.lead_list', 'safeguarding.lead_detail']) }}
+                {% endif %}
+                {% endif %}
             </nav>
 
             <div class="rail-user">
