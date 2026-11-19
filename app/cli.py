@@ -527,6 +527,30 @@ def _as_system(callback):
     return wrapped
 
 
+@click.command("seed-demo")
+@click.option("--demo-database", default=None, help="Demo database name (must end in _demo).")
+@click.option("--seed-only", is_flag=True, hidden=True, help="Internal: seed an already migrated demo database.")
+def seed_demo_command(demo_database, seed_only):
+    """Reset the SEPARATE demo database and fill it with fictional demo data.
+
+    Refuses unless the name ends in _demo, the config isn't production, AFRICASTALKING_USERNAME is
+    sandbox and DEMO_PASSWORD is set. Needs DB_SETUP_URL (a role that can create databases) in
+    the shell. Never touches the database in DATABASE_URL, never prints DEMO_PASSWORD.
+    """
+    from flask import current_app
+
+    from app.demo_seed import DEFAULT_DEMO_DATABASE, DemoSeedError, reset_and_seed, seed
+
+    name = demo_database or os.environ.get("DEMO_DATABASE") or DEFAULT_DEMO_DATABASE
+    try:
+        if seed_only:
+            seed(db, name, click.echo)
+        else:
+            reset_and_seed(os.environ, current_app.config, name, click.echo)
+    except DemoSeedError as error:
+        raise click.ClickException(str(error)) from None
+
+
 def register_cli_commands(app):
     """Attach project bootstrap CLI commands to the Flask app instance."""
     seed_roles_command.callback = _as_system(seed_roles_command.callback)
@@ -557,3 +581,5 @@ def register_cli_commands(app):
     app.cli.add_command(restore_test_command)
     decrypt_backup_command.callback = _as_system(decrypt_backup_command.callback)
     app.cli.add_command(decrypt_backup_command)
+    seed_demo_command.callback = _as_system(seed_demo_command.callback)
+    app.cli.add_command(seed_demo_command)
