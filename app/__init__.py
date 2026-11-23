@@ -210,8 +210,6 @@ def create_app(config_name="development"):
     from app.blueprints.school_mode.routes import school_bp
     from app.blueprints.childrens_home_mode.routes import home_bp
     from app.blueprints.audit.routes import audit_bp
-    from app.blueprints.notifications.routes import notifications_bp
-    from app.blueprints.anomaly.routes import anomaly_bp
     from app.blueprints.consent.routes import consent_bp
     from app.blueprints.attendance.routes import attendance_bp
     from app.blueprints.pickup.routes import pickup_bp
@@ -237,8 +235,6 @@ def create_app(config_name="development"):
     app.register_blueprint(school_bp, url_prefix="/school")
     app.register_blueprint(home_bp, url_prefix="/home-mode")
     app.register_blueprint(audit_bp, url_prefix="/audit")
-    app.register_blueprint(notifications_bp, url_prefix="/notifications")
-    app.register_blueprint(anomaly_bp, url_prefix="/anomaly")
     app.register_blueprint(consent_bp, url_prefix="/consent")
     app.register_blueprint(attendance_bp, url_prefix="/attendance")
     app.register_blueprint(pickup_bp, url_prefix="/pickup")

@@ -266,7 +266,7 @@ def test_parents_get_403_on_every_staff_route(app, sms):
         response = client.get(url)
         assert response.status_code == 403, (rule.endpoint, response.status_code)
         checked += 1
-    assert checked > 50
+    assert checked >= 50  # sanity floor: 50 staff GET routes once the placeholders went
     for path in ("/admin/guardian-links", f"/consent/records/{kid}"):
         assert client.post(path, data={}).status_code in (403, 405)
 
