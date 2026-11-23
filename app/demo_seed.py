@@ -19,6 +19,7 @@ All people are fictional: names are combined from built-in lists of common Kenya
 
 import os
 import random
+import re
 import subprocess
 import sys
 from datetime import date, datetime, time, timedelta
@@ -60,6 +61,19 @@ def _database_of(url):
     return urlparse(url).path.lstrip("/")
 
 
+_URL_CREDENTIALS = re.compile(r"(?P<head>[A-Za-z][A-Za-z0-9+.\-]*://[^:/@\s]*):[^@\s]*@")
+
+
+def scrub(text, secrets=()):
+    """Mask credentials before child-process output is shown: scheme://user:pass@ becomes
+    scheme://user:***@, and any listed secret value is replaced by ***."""
+    text = _URL_CREDENTIALS.sub(r"\g<head>:***@", text)
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "***")
+    return text
+
+
 def check_guards(environ, app_config, demo_database, seeding=False):
     """Every refusal happens here, before any database is touched. `seeding`: the child process,
     whose DATABASE_URL has been pointed at the demo database on purpose (seed() checks that)."""
@@ -67,8 +81,10 @@ def check_guards(environ, app_config, demo_database, seeding=False):
         raise DemoSeedError("The demo database name must end in _demo.")
     if environ.get("FLASK_ENV") == "production" or app_config.get("SESSION_COOKIE_SECURE") is True:
         raise DemoSeedError("Refusing to run with a production configuration.")
-    if environ.get("AFRICASTALKING_USERNAME", "sandbox") != "sandbox":
-        raise DemoSeedError("AFRICASTALKING_USERNAME must be 'sandbox' for demo data.")
+    # Fail closed, no default: the SMS service reads os.environ and the config reads AT_USERNAME, so
+    # both must be present and exactly "sandbox". A missing value refuses.
+    if environ.get("AFRICASTALKING_USERNAME") != "sandbox" or app_config.get("AT_USERNAME") != "sandbox":
+        raise DemoSeedError("AFRICASTALKING_USERNAME must be set to 'sandbox' for demo data.")
     password = environ.get("DEMO_PASSWORD") or ""
     if len(password) < 12:
         raise DemoSeedError("Set DEMO_PASSWORD (at least 12 characters) in this shell first.")
@@ -116,7 +132,8 @@ def reset_and_seed(environ, app_config, demo_database, echo):
     for label, args, extra in steps:
         result = subprocess.run([sys.executable, "-m", "flask", *args], env={**base, **extra}, capture_output=True,
                                 text=True, stdin=subprocess.DEVNULL, cwd=os.getcwd())
-        output = [line for line in (result.stdout + result.stderr).splitlines()
+        secrets = (environ.get("DEMO_PASSWORD"),)
+        output = [scrub(line, secrets) for line in (result.stdout + result.stderr).splitlines()
                   if line.strip() and "Warning" not in line and "warn(" not in line]
         if result.returncode != 0:
             tail = "; ".join(line.strip() for line in output[-3:])

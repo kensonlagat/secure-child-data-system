@@ -151,6 +151,31 @@ the owner while it bypasses. The owner's password is used only for migrations an
   than "which child" (for example, clinic notes hidden from teachers), which stay in
   `app/services/access_service.py`.
 
+## Demo data (`flask seed-demo`, #138)
+
+`flask seed-demo` drops and rebuilds a separate demo database (default `child_data_system_demo`)
+and fills it with fictional data. It refuses before touching anything unless:
+- the name ends in `_demo` and isn't the database in `DATABASE_URL` or `MIGRATION_DATABASE_URL`;
+- the configuration isn't production;
+- `AFRICASTALKING_USERNAME` is set to `sandbox`;
+- `DEMO_PASSWORD` (at least 12 characters) and `DB_SETUP_URL` are set in your own shell.
+
+```powershell
+$env:DEMO_PASSWORD = Read-Host "Demo password"
+$env:DB_SETUP_URL = 'postgresql://postgres@localhost:5432/postgres'
+$env:FLASK_APP = 'run.py'; flask seed-demo
+```
+
+Then start the app with `DATABASE_URL` pointing at `child_data_system_demo`.
+
+### Demo safety
+- **Never run the app against a `*_demo` database with live Africa's Talking credentials.** The
+  demo accounts use real-format Safaricom numbers (`+2547…`): both the simulator numbers and the
+  "fake" `+254700000NNN` range could belong to real people. With the sandbox username, messages
+  only appear in the Africa's Talking simulator. With a live account they would be sent for real.
+- The demo password is shared by every demo account. Use it for demos only, never for a real
+  account.
+
 ## Git workflow
 
 ```bash
