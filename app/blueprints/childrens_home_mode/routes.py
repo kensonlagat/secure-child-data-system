@@ -36,11 +36,13 @@ def _serialize_record(record, visible_fields):
     return {field_name: getattr(record, field_name) for field_name in visible_fields}
 
 
-def require_record_access(record_id):
+def require_record_access(record_id, childrens_home_only=False):
     """Return a record only when the current user is allowed to access it.
 
     Missing and forbidden records both answer 404, so a response never reveals whether a
     record ID exists. The audit log keeps the real reason (bounded, never blocks the 404).
+    With childrens_home_only, a record from another mode counts as forbidden too (an
+    administrator can access school records, but legal status is a children's-home matter).
     """
     record = db.session.get(ChildRecord, record_id)
     if record is None:
@@ -54,7 +56,8 @@ def require_record_access(record_id):
             bound_per_target=False,
         )
         abort(404)
-    if not can_access_record(current_user, record):
+    out_of_mode = childrens_home_only and record.institution_mode != "childrens_home"
+    if out_of_mode or not can_access_record(current_user, record):
         audit_access_denied(
             "Denied child record access in children's home mode",
             status_code=404,
@@ -150,10 +153,31 @@ def legal_status_requests():
         )
     ]
 
+    # Children this user may start a request for (#139): the role's scoped records from
+    # access_service, children's-home only. The POST endpoint re-checks access itself; this
+    # list only decides what the form offers.
+    show_names = "full_name" in get_visible_fields(current_user)
+    startable_records = [
+        {
+            "id": record.id,
+            "label": f"#{record.id} {record.full_name}" if show_names else f"Record #{record.id}",
+            "legal_status": record.legal_status or "",
+        }
+        for record in get_accessible_records(current_user)
+        .filter(ChildRecord.institution_mode == "childrens_home")
+        .order_by(ChildRecord.id)
+        .all()
+    ]
+    wanted = request.args.get("record_id", type=int)
+    selected_record_id = wanted if any(item["id"] == wanted for item in startable_records) else None
+
     return render_template(
         "legal_status/requests.html",
         requests=visible_requests,
         can_manage_requests=True,
+        startable_records=startable_records,
+        selected_record_id=selected_record_id,
+        legal_statuses=sorted(VALID_LEGAL_STATUSES),
     )
 
 
@@ -255,7 +279,7 @@ def update_record(record_id):
 @require_role("legal_officer", "administrator")
 def request_legal_status_change(record_id):
     """Create a legal status change request and send the requester OTP."""
-    record = require_record_access(record_id)
+    record = require_record_access(record_id, childrens_home_only=True)
     payload = request.get_json(silent=True) or {}
     requested_status = payload.get("requested_status")
 
@@ -274,6 +298,16 @@ def request_legal_status_change(record_id):
             "Requested legal status is not recognized.",
             target_record_id=record_id,
         )
+
+    if requested_status == record.legal_status:
+        log_action(
+            user_id=current_user.id,
+            action="legal_status_change_request_failed",
+            target_record_type="child_record",
+            target_record_id=record.id,
+            details="Requested legal status is already the record's current status.",
+        )
+        return jsonify({"error": "The child already has this legal status."}), 400
 
     try:
         otp_event = generate_otp(current_user, "legal_status_change", target_record_id=record.id)

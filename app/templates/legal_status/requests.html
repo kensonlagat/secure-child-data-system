@@ -9,6 +9,40 @@
     <p class="lead">Track request status, confirm OTPs, approve changes, and reject invalid requests from one page.</p>
 </section>
 
+<section class="panel" id="start-request">
+    <h2>Start a legal status change</h2>
+    <p class="muted">A change needs two people: you request it and confirm with the code sent to your phone, then a different legal officer or administrator approves it with their own code.</p>
+    {% if startable_records %}
+    <form id="start-request-form" class="form-grid" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-group" for="start-record">
+            <span>Child</span>
+            <select id="start-record" name="record_id" required>
+                <option value="">Choose a child</option>
+                {% for item in startable_records %}
+                <option value="{{ item.id }}" data-current="{{ item.legal_status }}" {% if item.id == selected_record_id %}selected{% endif %}>{{ item.label }} ({{ item.legal_status.replace('_', ' ') if item.legal_status else 'no status' }})</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="field-group" for="start-status">
+            <span>Requested status</span>
+            <select id="start-status" name="requested_status" required>
+                <option value="">Choose a status</option>
+                {% for status in legal_statuses %}
+                <option value="{{ status }}">{{ status.replace('_', ' ') | capitalize }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="form-actions">
+            <button type="submit" class="action-button" id="start-request-submit">Request change</button>
+        </div>
+    </form>
+    <div id="start-request-message" class="notice" aria-live="polite" hidden></div>
+    {% else %}
+    <p class="empty-state">No children's-home records in your scope.</p>
+    {% endif %}
+</section>
+
 <section class="panel">
     <div id="requests-message" class="notice" aria-live="polite" hidden></div>
 
@@ -80,6 +114,63 @@
         messageBox.hidden = false;
         messageBox.className = `notice ${kind}`;
         messageBox.textContent = text;
+    }
+
+    // #139: start a request through the existing endpoint, then the existing requester-code
+    // step. csrf.js adds the X-CSRFToken header to this same-origin POST.
+    const startForm = document.getElementById('start-request-form');
+    if (startForm) {
+        const startMessage = document.getElementById('start-request-message');
+        const startButton = document.getElementById('start-request-submit');
+        const say = (kind, text) => {
+            startMessage.hidden = false;
+            startMessage.className = `notice ${kind}`;
+            startMessage.textContent = text;
+        };
+
+        startForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const recordSelect = startForm.elements.record_id;
+            const recordId = recordSelect.value;
+            const requestedStatus = startForm.elements.requested_status.value;
+            if (!recordId || !requestedStatus) {
+                say('error', 'Choose a child and a requested status.');
+                return;
+            }
+            if (recordSelect.selectedOptions[0].dataset.current === requestedStatus) {
+                say('error', 'That is already the child\'s legal status.');
+                return;
+            }
+
+            startButton.disabled = true;
+            say('info', 'Starting the request and sending a code to your phone...');
+            let changeRequestId;
+            try {
+                const created = await postJson(
+                    `/home-mode/legal-status/${encodeURIComponent(recordId)}/request-change`,
+                    { requested_status: requestedStatus },
+                );
+                changeRequestId = created.change_request_id;
+            } catch (error) {
+                say('error', `Could not start the request (${error.message}).`);
+                startButton.disabled = false;
+                return;
+            }
+
+            const otpCode = window.prompt('Request started. Enter the code sent to your phone');
+            if (!otpCode) {
+                say('info', 'Request started. Confirm it later with "Confirm OTP" in the table below.');
+                window.setTimeout(() => window.location.reload(), 1500);
+                return;
+            }
+            try {
+                await postJson(`/home-mode/legal-status/confirm-request/${changeRequestId}`, { otp_code: otpCode });
+                say('success', 'Code confirmed. The request now waits for a second person to approve it.');
+            } catch (error) {
+                say('error', 'The code was not accepted. Use "Confirm OTP" in the table below to try again.');
+            }
+            window.setTimeout(() => window.location.reload(), 1500);
+        });
     }
 
     document.querySelectorAll('[data-action]').forEach((button) => {
