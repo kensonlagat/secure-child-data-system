@@ -228,6 +228,7 @@ def create_app(config_name="development"):
     from app.blueprints.report_cards.routes import report_cards_bp
     from app.blueprints.parent.routes import parent_bp, register_parent_guard
     from app.blueprints.principal.routes import principal_bp
+    from app.blueprints.safeguarding.routes import safeguarding_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
@@ -252,6 +253,7 @@ def create_app(config_name="development"):
     app.register_blueprint(report_cards_bp, url_prefix="/reports")
     app.register_blueprint(parent_bp, url_prefix="/parent")
     app.register_blueprint(principal_bp, url_prefix="/principal")
+    app.register_blueprint(safeguarding_bp)  # /concerns, /safeguarding and /admin/concerns (#62)
 
     # Register trusted local CLI bootstrap commands (roles + first admin).
     from app.cli import register_cli_commands

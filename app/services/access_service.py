@@ -603,3 +603,48 @@ def get_record_for_report_card(user, record_id):
 def can_manage_guardian_links(user):
     """Creating, verifying and revoking guardian links is administrator-only."""
     return _get_role_name(user) == "administrator"
+
+
+# --- Safeguarding concerns (#62) -------------------------------------------------------------
+# Raise: any active staff member (never a parent), about no child or a child in their own scope.
+# Read the narrative and act: an active safeguarding lead whose role is in the concern's mode,
+# never an administrator (D62.3), and never on a concern they reported themselves.
+# Administrators: metadata only. Everyone else: nothing (404).
+
+CONCERN_RAISER_ROLES = {"administrator", "teacher", "school_nurse", "social_worker", "legal_officer",
+                        "principal", "home_manager"}
+
+
+def can_raise_concern(user):
+    return _get_role_name(user) in CONCERN_RAISER_ROLES and bool(getattr(user, "is_active", False))
+
+
+def can_raise_concern_about(user, record):
+    """A named child must be one the reporter can already open (same rule as can_access_record)."""
+    return can_raise_concern(user) and can_access_record(user, record)
+
+
+def is_safeguarding_lead_for(user, mode):
+    role_name = _get_role_name(user)
+    return (bool(getattr(user, "is_safeguarding_lead", False)) and bool(getattr(user, "is_active", False))
+            and role_name is not None and role_name not in ("administrator", "parent_guardian")
+            and getattr(user.role, "institution_mode", None) == mode)
+
+
+def safeguarding_lead_modes(user):
+    mode = getattr(getattr(user, "role", None), "institution_mode", None)
+    return [mode] if mode and is_safeguarding_lead_for(user, mode) else []
+
+
+def can_read_concern(user, concern):
+    """The only gate to the narrative and the action log. The same rule decides acting."""
+    return (concern is not None and is_safeguarding_lead_for(user, concern.institution_mode)
+            and concern.reporter_id != getattr(user, "id", None))
+
+
+def can_act_on_concern(user, concern):
+    return can_read_concern(user, concern)
+
+
+def can_view_concern_metadata(user):
+    return _get_role_name(user) == "administrator"

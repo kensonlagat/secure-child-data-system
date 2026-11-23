@@ -25,6 +25,7 @@ OWNER, APP_ROLE = "cds_rls_test_owner", "cds_rls_test_app"
 VERSIONS = Path(__file__).resolve().parents[1] / "migrations" / "versions"
 MIGRATION = VERSIONS / "c5f1e8a3b7d2_add_row_level_security.py"
 REPORT_CARD_MIGRATION = VERSIONS / "f8c3a5d1e9b7_add_report_cards.py"
+SAFEGUARDING_MIGRATION = VERSIONS / "e4b8c2f6d9a1_add_safeguarding_concerns.py"
 PASSWORD = "Password#2026"
 ROLES = {"administrator": "both", "teacher": "school", "school_nurse": "school", "principal": "school",
          "social_worker": "childrens_home", "legal_officer": "childrens_home", "home_manager": "childrens_home",
@@ -96,6 +97,14 @@ def pg_app():
                              "audit_stats(text, timestamp, integer, boolean, text, text, text, text, integer, boolean)",
                              "parent_has_active_link(integer)"):
                 conn.execute(text(f"GRANT EXECUTE ON FUNCTION {function} TO {APP_ROLE}"))
+            # #62, from its real migration, after the grants above (as on a real database, where
+            # the app role already exists when the migration runs): column grants, helper
+            # functions (EXECUTE for the app role) and its own policies, replacing any generic
+            # child_scope_/parent_scope_ policy the #19 loops created on these tables here.
+            safeguarding = _load(SAFEGUARDING_MIGRATION, "safeguarding_migration")
+            conn.execute(text(safeguarding.RESTRICT))
+            conn.execute(text(safeguarding.FUNCTIONS))
+            conn.execute(text(safeguarding.POLICIES))
         ids = _seed(db)
         db.session.remove()
         db.engine.dispose()
@@ -704,3 +713,166 @@ def test_write_new_child_record_as_administrator(pg_app, no_sms):
         "full_name": "New Admission", "date_of_birth": "2015-03-01", "institution_mode": "school"})
     _ok(response)
     assert _count(pg_app, "child_records", "true") == 7
+
+
+# --- Safeguarding concerns (#62) under row-level security -------------------------------------------
+# These run after the tests above (module order). They sign in by setting the session directly, so
+# the account locked by the lockout test (lockout_probe, a teacher with no class) can serve as a
+# safeguarding lead who can't see any child row under their own role's scope.
+
+SG_MARKER = "marker-pg-s4feguard"
+
+
+def _client_as(pg_app, key, portal="school"):
+    client = pg_app.test_client()
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(pg_app.config["IDS"]["users"][key])
+        sess["_fresh"] = True
+        sess["active_portal"] = portal
+    return client
+
+
+def _pgcode(pg_app, user_key, statement, params=None):
+    """Run one statement as the app role under this user's context ('system' for the CLI
+    context). Returns None if it worked, else the PostgreSQL error code. Always rolled back."""
+    from flask import session
+    from sqlalchemy.exc import DBAPIError
+
+    from app import db
+    from app.rls import system_context
+
+    def attempt():
+        try:
+            db.session.execute(text(statement), params or {})
+            return None
+        except DBAPIError as error:
+            return error.orig.pgcode
+        finally:
+            db.session.rollback()
+            db.session.remove()
+
+    if user_key == "system":
+        with pg_app.app_context(), system_context():
+            return attempt()
+    with pg_app.test_request_context("/"):
+        session["_user_id"] = str(pg_app.config["IDS"]["users"][user_key])
+        return attempt()
+
+
+@pytest.fixture(scope="module")
+def concerns_seeded(pg_app):
+    """Leads: school_nurse and lockout_probe (school). Concerns raised through the app's routes:
+    A by the teacher about their class child, B by the social worker with no child, C by the
+    school nurse (a lead) about the other class's child. Actions: a note on A by the nurse, a
+    note on C by lockout_probe (the nurse can't act on C: she reported it)."""
+    import sys
+
+    users = pg_app.config["IDS"]["users"]
+    kids = pg_app.config["IDS"]["kids"]
+    _as_system(pg_app, lambda db: db.session.execute(
+        text("UPDATE users SET is_safeguarding_lead = true WHERE id IN (:a, :b)"),
+        {"a": users["school_nurse"], "b": users["lockout_probe"]}))
+    saved = {}
+    for module in list(sys.modules.values()):
+        if getattr(module, "__name__", "").startswith("app.") and hasattr(module, "send_sms"):
+            saved[module] = module.send_sms
+            module.send_sms = lambda phone, message: {"ok": True}
+    try:
+        for key, portal, data in (
+                ("teacher", "school", {"child_record_id": str(kids["in_class"])}),
+                ("social_worker", "childrens_home", {}),
+                ("school_nurse", "school", {"child_record_id": str(kids["other_class"])})):
+            response = _client_as(pg_app, key, portal).post("/concerns/new", data={
+                "urgency": "high", "narrative": f"{SG_MARKER} by {key}", "involves_staff": "no", **data})
+            assert response.status_code == 302, (key, response.status_code)
+    finally:
+        for module, original in saved.items():
+            module.send_sms = original
+    ids = _as_system(pg_app, lambda db: {row[1]: row[0] for row in db.session.execute(text(
+        "SELECT s.id, s.reporter_id FROM safeguarding_concerns s")).all()})
+    a, b, c = ids[users["teacher"]], ids[users["social_worker"]], ids[users["school_nurse"]]
+    assert _client_as(pg_app, "school_nurse").post(f"/safeguarding/concerns/{a}/actions", data={
+        "action_type": "note", "body": "nurse note"}).status_code == 302
+    assert _client_as(pg_app, "lockout_probe").post(f"/safeguarding/concerns/{c}/actions", data={
+        "action_type": "note", "body": "probe note"}).status_code == 302
+    actions = _as_system(pg_app, lambda db: {row[1]: row[0] for row in db.session.execute(text(
+        "SELECT id, concern_id FROM safeguarding_concern_actions")).all()})
+    assert set(actions) == {a, c}
+    return {"A": a, "B": b, "C": c, "A1": actions[a], "C1": actions[c]}
+
+
+SG_EXPECTED = {  # user key -> (concerns visible, action rows visible)
+    "administrator": ({"A", "B", "C"}, set()),
+    "teacher": ({"A"}, set()),
+    "school_nurse": ({"A", "C"}, {"A1"}),      # a lead sees her mode; no actions on what she reported
+    "lockout_probe": ({"A", "C"}, {"A1", "C1"}),
+    "principal": (set(), set()),
+    "social_worker": ({"B"}, set()),
+    "legal_officer": (set(), set()),
+    "home_manager": (set(), set()),
+    "parent_guardian": (set(), set()),
+}
+
+
+@pytest.mark.parametrize("key", sorted(SG_EXPECTED))
+def test_safeguarding_rls_parity_for_concerns_and_actions(pg_app, concerns_seeded, key):
+    names = {v: k for k, v in concerns_seeded.items() if k in ("A", "B", "C")}
+    action_names = {v: k for k, v in concerns_seeded.items() if k in ("A1", "C1")}
+    seen = {names[row[0]] for row in _visible(pg_app, key, "SELECT id FROM safeguarding_concerns")}
+    seen_actions = {action_names[row[0]] for row in
+                    _visible(pg_app, key, "SELECT id FROM safeguarding_concern_actions")}
+    assert (seen, seen_actions) == SG_EXPECTED[key]
+
+
+def test_the_database_refuses_changing_the_narrative_or_deleting(pg_app, concerns_seeded):
+    a, a1 = concerns_seeded["A"], concerns_seeded["A1"]
+    for user_key in ("system", "school_nurse"):
+        assert _pgcode(pg_app, user_key, "UPDATE safeguarding_concerns SET narrative = narrative WHERE id = :i",
+                       {"i": a}) == "42501"
+        assert _pgcode(pg_app, user_key, "UPDATE safeguarding_concerns SET reporter_id = reporter_id WHERE id = :i",
+                       {"i": a}) == "42501"
+        # Urgency is set once when the concern is raised; nothing updates it (batch 7 review).
+        assert _pgcode(pg_app, user_key, "UPDATE safeguarding_concerns SET urgency = urgency WHERE id = :i",
+                       {"i": a}) == "42501"
+        assert _pgcode(pg_app, user_key, "DELETE FROM safeguarding_concerns WHERE id = :i", {"i": a}) == "42501"
+        assert _pgcode(pg_app, user_key, "UPDATE safeguarding_concern_actions SET body = body WHERE id = :i",
+                       {"i": a1}) == "42501"
+        assert _pgcode(pg_app, user_key, "DELETE FROM safeguarding_concern_actions WHERE id = :i",
+                       {"i": a1}) == "42501"
+    # The status columns stay writable for a lead.
+    assert _pgcode(pg_app, "school_nurse", "UPDATE safeguarding_concerns SET status = status WHERE id = :i",
+                   {"i": a}) is None
+
+
+def test_the_database_refuses_relinking_and_out_of_scope_or_parent_inserts(pg_app, concerns_seeded):
+    kids, users = pg_app.config["IDS"]["kids"], pg_app.config["IDS"]["users"]
+    assert _pgcode(pg_app, "system", "UPDATE safeguarding_concerns SET child_record_id = :c WHERE id = :i",
+                   {"c": kids["other_class"], "i": concerns_seeded["A"]}) == "23514"
+    insert = ("INSERT INTO safeguarding_concerns (child_record_id, institution_mode, reporter_id, involves_staff, "
+              "urgency, status, narrative, created_at, updated_at) "
+              "VALUES (:c, 'school', :r, false, 'low', 'open', decode('00', 'hex'), now(), now())")
+    assert _pgcode(pg_app, "teacher", insert, {"c": kids["other_class"], "r": users["teacher"]}) == "42501"
+    assert _pgcode(pg_app, "teacher", insert, {"c": kids["in_class"], "r": users["principal"]}) == "42501"
+    assert _pgcode(pg_app, "parent_guardian", insert, {"c": None, "r": users["parent_guardian"]}) == "42501"
+    # An administrator can't add actions (administrators get no action rows at all).
+    assert _pgcode(pg_app, "administrator",
+                   "INSERT INTO safeguarding_concern_actions (concern_id, actor_id, action_type, created_at) "
+                   "VALUES (:i, :a, 'note', now())", {"i": concerns_seeded["A"], "a": users["administrator"]}) == "42501"
+
+
+def test_a_lead_without_access_to_the_child_row_still_reads_the_concern_and_the_name(pg_app, concerns_seeded):
+    a = concerns_seeded["A"]
+    assert _visible(pg_app, "lockout_probe", "SELECT count(*) FROM child_records")[0][0] == 0
+    before = _audit_count(pg_app, "concern_narrative_viewed")
+    page = _client_as(pg_app, "lockout_probe").get(f"/safeguarding/concerns/{a}")
+    html = page.get_data(as_text=True)
+    assert page.status_code == 200 and f"{SG_MARKER} by teacher" in html and "In Class" in html
+    assert _audit_count(pg_app, "concern_narrative_viewed") == before + 1
+
+
+def test_admin_metadata_and_reporter_list_work_under_rls_without_narrative(pg_app, concerns_seeded):
+    body = _client_as(pg_app, "administrator").get("/admin/concerns", headers={"Accept": "application/json"}).get_json()
+    assert len(body["items"]) == 3 and SG_MARKER not in str(body)
+    mine = _client_as(pg_app, "teacher").get("/concerns/mine", headers={"Accept": "application/json"}).get_json()
+    assert [item["id"] for item in mine["items"]] == [concerns_seeded["A"]]
+    assert _client_as(pg_app, "teacher").get(f"/safeguarding/concerns/{concerns_seeded['A']}").status_code == 404

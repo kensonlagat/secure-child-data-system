@@ -26,7 +26,7 @@ AUDIT_TABLE = "audit_log_entries"
 APPEND_ONLY_TABLES = (AUDIT_TABLE, "consent_records", "attendance_corrections", "absence_alerts",
                       "clinic_visits", "case_notes", "health_entries", "medication_administrations",
                       "family_visits", "placements", "document_blobs",
-                      "child_photos")
+                      "child_photos", "safeguarding_concern_actions")
 # Tables the app role may update only in these columns (everything else is fixed once written).
 COLUMN_UPDATE_TABLES = {
     "authorised_collectors": ("status", "decided_by", "decided_at", "is_active", "revoked_by", "revoked_at"),
@@ -37,6 +37,9 @@ COLUMN_UPDATE_TABLES = {
     "report_card_entries": ("level", "comment", "updated_by", "updated_at"),
     # Guardian links (#67): only the status columns; who is linked to whom never changes.
     "guardian_links": ("status", "verified_by", "verified_at", "revoked_by", "revoked_at"),
+    # Safeguarding concerns (#62): status columns only, so the narrative can't change after
+    # submission. child_record_id is set once, while NULL (a trigger refuses re-linking).
+    "safeguarding_concerns": ("status", "child_record_id", "updated_at", "closed_at", "closed_by"),
 }
 MIGRATION_TABLE = "alembic_version"
 # Row-level security (#19): the context key lives in an owner-only table the app role can't read.
@@ -45,7 +48,10 @@ OWNER_ONLY_TABLES = (MIGRATION_TABLE, RLS_KEY_TABLE)
 # SECURITY DEFINER helpers the app role may call. They return booleans or counts, never rows.
 RLS_APP_FUNCTIONS = ("app_context_valid()",
                      "audit_stats(text, timestamp, integer, boolean, text, text, text, text, integer, boolean)",
-                     "parent_has_active_link(integer)")
+                     "parent_has_active_link(integer)",
+                     # #62: for safeguarding leads; booleans or the child's encrypted name only.
+                     "app_is_safeguarding_lead(text)", "safeguarding_child_name(integer)",
+                     "safeguarding_link_target_ok(integer, text)")
 RLS_TABLES = ("child_records", "audit_log_entries", "guardian_links")
 # Child data in tables WITHOUT a child_record_id column, scoped through their parent row:
 # table -> (foreign key column, parent table). The parent's own policy then applies. The one
@@ -58,6 +64,8 @@ CHILD_DATA_VIA_PARENT = {
     "medication_administrations": ("schedule_id", "medication_schedules"),
     "aftercare_followups": ("placement_id", "placements"),
     "attendance_corrections": ("mark_id", "attendance_marks"),
+    # #62: its own, stricter policies (leads only) are written as fixed text in its migration.
+    "safeguarding_concern_actions": ("concern_id", "safeguarding_concerns"),
 }
 # Tables that reference forced tables but deliberately have no policy of their own:
 # enrolments is read by the teacher branch of the child_records policy (a policy on it that read
@@ -192,6 +200,9 @@ def setup_roles(dsn, owner_role, app_role, owner_password=None, app_password=Non
                                 "ON CONFLICT (id) DO UPDATE SET key = EXCLUDED.key").format(sql.Identifier(RLS_KEY_TABLE)),
                         (psycopg2.Binary(rls_key),))
                     for function in RLS_APP_FUNCTIONS:
+                        cursor.execute("SELECT to_regprocedure(%s) IS NOT NULL", (f"public.{function}",))
+                        if not cursor.fetchone()[0]:
+                            continue  # its migration hasn't run on this database yet
                         cursor.execute(sql.SQL(f"ALTER FUNCTION public.{function} OWNER TO {{}}").format(owner))
                         cursor.execute(sql.SQL(f"REVOKE ALL ON FUNCTION public.{function} FROM PUBLIC"))
                         cursor.execute(sql.SQL(f"GRANT EXECUTE ON FUNCTION public.{function} TO {{}}").format(app))

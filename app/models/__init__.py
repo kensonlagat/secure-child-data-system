@@ -26,6 +26,7 @@ from app.models.document import Document, DocumentBlob
 from app.models.photo import ChildPhoto
 from app.models.report_card import ReportCard, ReportCardEntry
 from app.models.guardian_link import GuardianLink
+from app.models.safeguarding import SafeguardingConcern, SafeguardingConcernAction
 
 __all__ = [
 	"User",
@@ -64,4 +65,6 @@ __all__ = [
 	"ReportCard",
 	"ReportCardEntry",
 	"GuardianLink",
+	"SafeguardingConcern",
+	"SafeguardingConcernAction",
 ]

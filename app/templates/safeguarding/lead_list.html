@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Safeguarding concerns | Child Data System{% endblock %}
+
+{% block content %}
+<section class="hero-card">
+    <p class="eyebrow">Safeguarding lead</p>
+    <h1>Safeguarding concerns</h1>
+    <p class="lead">Concerns in your area that someone else reported. Opening one is recorded in the audit log.</p>
+</section>
+
+<section class="panel" aria-labelledby="queue-title">
+    <h2 id="queue-title">{{ queue | length }} concern{{ '' if queue | length == 1 else 's' }}</h2>
+    {% if queue %}
+    <table class="data-table">
+        <thead><tr><th scope="col">Concern</th><th scope="col">Raised</th><th scope="col">Urgency</th><th scope="col">Child</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+            {% for concern in queue %}
+            <tr><td><a href="{{ url_for('safeguarding.lead_detail', concern_id=concern.id) }}" class="mono">#{{ concern.id }}</a></td>
+                <td class="mono">{{ concern.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>{{ concern.urgency | capitalize }}{% if concern.involves_staff %} · involves staff{% endif %}</td>
+                <td>{% if concern.child_record_id %}Record <span class="mono">#{{ concern.child_record_id }}</span>{% else %}Not linked yet{% endif %}</td>
+                <td>{{ concern.status | capitalize }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted empty-state">No concerns.</p>
+    {% endif %}
+</section>
+{% endblock %}
