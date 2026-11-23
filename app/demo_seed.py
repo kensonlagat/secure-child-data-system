@@ -200,6 +200,7 @@ class Seeder:
         self.db.session.commit()
         self.files()
         self.archive()
+        self.concerns()
         self.background_audit()
         self.planted_incident()
         self.db.session.commit()
@@ -232,7 +233,8 @@ class Seeder:
     def staff(self):
         self.admin1 = self.user("admin1", "administrator", live=True)
         self.admin2 = self.user("admin2", "administrator", live=True)
-        self.principal = self.user("principal", "principal", live=True)
+        # The principal is the school safeguarding lead, so both modes have a lead (#62).
+        self.principal = self.user("principal", "principal", live=True, lead=True)
         self.nurse = self.user("nurse", "school_nurse", live=True)
         self.teachers = []
         for grade, stream in CLASSES:
@@ -602,6 +604,109 @@ class Seeder:
             child.is_archived, child.archived_at, child.archived_by = True, self.now - timedelta(days=4), self.admin1.id
             child.leave_reason, child.leave_date = reason, self.today - timedelta(days=5)
         self.db.session.commit()
+
+    # safeguarding concerns (#62) ---------------------------------------------------------------
+    def concerns(self):
+        """Six fictional concerns, back-dated through the models (the service stamps "now" and
+        sends SMS). Each step gets the audit row the service would write, marked is_synthetic, with
+        the same action names and the same kind of details (ids and counts, never text). No SMS:
+        the concern_notified rows say so. Leads: principal (school); social1 and manager (home)."""
+        from app.models.audit_log import AuditLogEntry
+        from app.models.safeguarding import SafeguardingConcern, SafeguardingConcernAction
+
+        rows, read = [], set()
+
+        def audit(actor, action, concern, details, when):
+            rows.append(AuditLogEntry(user_id=actor.id, action=action, target_record_type="safeguarding_concern",
+                                      target_record_id=concern.id, details=details, timestamp=when,
+                                      is_synthetic=True))
+
+        def raise_(reporter, mode, urgency, child, narrative, when, involves_staff=False):
+            concern = SafeguardingConcern(child_record_id=child.id if child else None, institution_mode=mode,
+                                          reporter_id=reporter.id, involves_staff=involves_staff, urgency=urgency,
+                                          status="open", narrative=narrative, created_at=when, updated_at=when)
+            self.add(concern)
+            self.db.session.flush()
+            child_part = f"child record {child.id}" if child else "no child linked"
+            audit(reporter, "concern_raised", concern, f"Concern {concern.id} raised ({mode}, {urgency}, {child_part}"
+                  f"{', involves staff' if involves_staff else ''})", when)
+            audit(reporter, "concern_notified", concern,
+                  f"Concern {concern.id}: demo seed, no SMS sent", when + timedelta(seconds=1))
+            return concern, child_part
+
+        def act(concern, child_part, lead, when, action_type, body=None, status=None, agency=None):
+            if (concern.id, lead.id) not in read:  # a lead reads the concern before acting on it
+                audit(lead, "concern_narrative_viewed", concern, f"Concern {concern.id} read; {child_part}",
+                      when - timedelta(minutes=2))
+                read.add((concern.id, lead.id))
+            before = concern.status
+            if action_type == "status_change":
+                concern.status = status
+            elif action_type == "referral":
+                concern.status = "referred"
+            elif action_type == "closure":
+                concern.status, concern.closed_at, concern.closed_by = "closed", when, lead.id
+            concern.updated_at = when
+            self.add(SafeguardingConcernAction(concern_id=concern.id, actor_id=lead.id, action_type=action_type,
+                                               body=body, referral_agency=agency, created_at=when))
+            audit(lead, "concern_action_added", concern, f"Concern {concern.id}: {action_type} added", when)
+            if concern.status != before:
+                audit(lead, "concern_status_changed", concern, f"Concern {concern.id}: {before} -> {concern.status}",
+                      when)
+            if action_type == "referral":
+                audit(lead, "concern_referred", concern, f"Concern {concern.id}: referred to {agency}", when)
+            if action_type == "closure":
+                audit(lead, "concern_closed", concern, f"Concern {concern.id} closed", when)
+
+        fictional = " (Fictional demo text.)"
+        teacher_6a_class, teacher_6a = self.classes[4]
+        pupil_6a = self.class_children[teacher_6a_class.id][2]
+        other_pupil = self.class_children[self.classes[1][0].id][5]
+        home = [c for c in self.home_children if not c.is_archived]
+        social1, social2, social3 = self.social
+        day = self.today
+
+        # 1. School, high, open: teacher_6a about a pupil in 6A, this morning.
+        raise_(teacher_6a, "school", "high", pupil_6a,
+               "Pupil arrived quiet and withdrawn, with a bruise on the forearm, and said they did not want "
+               "to go home after school." + fictional, self.now - timedelta(hours=3))
+        # 2. School, low, open, older than 24 hours (shows in the untriaged counter).
+        raise_(self.nurse, "school", "low", other_pupil,
+               "Pupil has come to the clinic hungry several mornings this week and says there is often no "
+               "breakfast at home." + fictional, self.now - timedelta(hours=30))
+        # 3. Children's home, immediate, referred to the police, with a note and a referral action.
+        child3 = next(c for c in home if c.caseload_worker_id == social2.id)
+        concern, part = raise_(social2, "childrens_home", "immediate", child3,
+                               "Child reported that an adult outside the home has been contacting them by phone "
+                               "and asking to meet." + fictional, self.at(day - timedelta(days=3), 6, 40))
+        act(concern, part, self.manager, self.at(day - timedelta(days=3), 7, 5), "note",
+            body="Spoke with the child; phone handed in for safekeeping." + fictional)
+        act(concern, part, self.manager, self.at(day - timedelta(days=3), 7, 30), "referral", agency="police",
+            body="Reported to the police gender and children's desk." + fictional)
+        # 4. Children's home, closed with a reason.
+        child4 = next(c for c in home if c.caseload_worker_id == social3.id)
+        concern, part = raise_(self.legal, "childrens_home", "medium", child4,
+                               "Child was upset after a family visit and said a relative shouted at them." + fictional,
+                               self.at(day - timedelta(days=12), 9, 15))
+        act(concern, part, social1, self.at(day - timedelta(days=11), 8, 0), "status_change", status="triaged")
+        act(concern, part, social1, self.at(day - timedelta(days=6), 11, 20), "closure",
+            body="Followed up with the family and the child; visits now supervised. No further concern." + fictional)
+        # 5. No child linked (school, medium, open).
+        raise_(self.teachers[0], "school", "medium", None,
+               "Overheard a group of older pupils talking about sharing photos of another pupil online; names "
+               "not known yet." + fictional, self.at(day - timedelta(days=1), 8, 50))
+        # 6. Involves staff (children's home, high, triaged).
+        child6 = [c for c in home if c.caseload_worker_id == social3.id][1]  # in social3's own caseload
+        concern, part = raise_(social3, "childrens_home", "high", child6,
+                               "Child said a member of night staff locks them out of the common room as a "
+                               "punishment." + fictional, self.at(day - timedelta(days=2), 7, 10),
+                               involves_staff=True)
+        act(concern, part, self.manager, self.at(day - timedelta(days=2), 8, 0), "status_change", status="triaged")
+
+        self.db.session.flush()
+        self.db.session.add_all(rows)
+        self.db.session.commit()
+        self.concern_audit_rows = len(rows)
 
     # audit ---------------------------------------------------------------------------------------
     def background_audit(self):
