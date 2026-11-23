@@ -33,7 +33,10 @@ NO_LEAD_SMS = "A new safeguarding concern has been raised. Sign in to view it. N
 LEAD_SMS_URGENCIES = ("high", "immediate")
 UNTRIAGED_AFTER = timedelta(hours=24)
 MODE_LABELS = {"school": "School", "childrens_home": "Children's home"}
-STATUS_FLOW = {"open": ("triaged", "referred"), "triaged": ("referred",), "referred": ("triaged",)}
+# Statuses a "status_change" action may move to. "referred" is deliberately absent: it is reached
+# only through a referral action, which records the agency. "closed" only through a closure.
+STATUS_FLOW = {"open": ("triaged",), "triaged": (), "referred": ("triaged",)}
+LINK_REFUSED_ACTION = "concern_link_refused"
 
 
 class ConcernError(ValueError):
@@ -59,15 +62,17 @@ def active_leads(mode, exclude_user_id=None):
     return [u for u in users if u.id != exclude_user_id and is_safeguarding_lead_for(u, mode)]
 
 
-def modes_without_lead():
-    return [mode for mode in CONCERN_MODES if not active_leads(mode)]
+def modes_without_lead(exclude_user_id=None):
+    """Modes with no active lead, or (with exclude_user_id) none other than that user."""
+    return [mode for mode in CONCERN_MODES if not active_leads(mode, exclude_user_id=exclude_user_id)]
 
 
 # --- Raising ------------------------------------------------------------------------------------
 
 
 def raise_concern(actor, record, mode, form):
-    """Save first (log_action commits), then notify. A failed SMS never loses the concern."""
+    """Save first (log_action commits), then notify. A failed SMS never loses the concern.
+    Returns (concern, notified), where notified is what notify() returned."""
     urgency = (form.get("urgency") or "").strip()
     if urgency not in URGENCIES:
         raise ConcernError("Choose how urgent this is.")
@@ -88,11 +93,15 @@ def raise_concern(actor, record, mode, form):
     _audit(actor, "concern_raised", concern,
            f"Concern {concern.id} raised ({mode}, {urgency}, {_child_part(concern)}"
            f"{', involves staff' if concern.involves_staff else ''})")
-    notify(actor, concern)
-    return concern
+    notified = notify(actor, concern)
+    return concern, notified
 
 
 def notify(actor, concern):
+    """Tell whoever can act on the concern. Returns "lead" when at least one lead other than the
+    reporter exists (they see it in their list, with an SMS for high and immediate), otherwise
+    "administrators" (SMS to every active administrator). The reporter never counts as a lead
+    for their own concern, because they can't read it (can_read_concern)."""
     from app.services.sms_service import send_sms
 
     leads = active_leads(concern.institution_mode, exclude_user_id=actor.id)
@@ -100,7 +109,7 @@ def notify(actor, concern):
         if concern.urgency not in LEAD_SMS_URGENCIES:
             _audit(actor, "concern_notified", concern,
                    f"Concern {concern.id}: {len(leads)} lead(s); no SMS for {concern.urgency} (D62.4)")
-            return
+            return "lead"
         recipients, message, who = leads, LEAD_SMS, "lead"
     else:
         recipients = (User.query.join(Role, Role.id == User.role_id)
@@ -118,6 +127,7 @@ def notify(actor, concern):
     if failed or not recipients:
         _audit(actor, "concern_notification_failed", concern,
                f"Concern {concern.id}: {failed} of {len(recipients)} {who} SMS failed")
+    return "lead" if leads else "administrators"
 
 
 # --- Reading (leads) ------------------------------------------------------------------------------
@@ -125,6 +135,8 @@ def notify(actor, concern):
 
 def lead_queue(user, modes):
     """Concerns in the lead's mode that they didn't report. No narrative is read here."""
+    # Deliberate (lead decision, batch 7): no archived/deleted filter on the child. Concerns stay
+    # visible to leads after the child is archived; only raising or linking a new one is refused.
     if not modes:
         return []
     return (SafeguardingConcern.query
@@ -228,6 +240,30 @@ def add_action(actor, concern, form):
         _audit(actor, "concern_closed", concern, f"Concern {concern.id} closed")
 
 
+MAX_RECORD_ID = 2_147_483_647  # child_records.id is an INTEGER column
+
+
+def _audit_link_refused(actor, concern, reason):
+    """One concern_link_refused row per refused attempt, capped like access_denied: at most
+    ACCESS_DENIED_RECORD_CAP_PER_WINDOW rows per user per window. The details name the concern
+    and the attempted record number only; free text the user typed is never written, since
+    it could be a child's name. Auditing never stops the refusal."""
+    from flask import current_app
+
+    from app.services.audit_service import audit_stats
+
+    try:
+        window = timedelta(seconds=current_app.config.get("ACCESS_DENIED_AUDIT_WINDOW_SECONDS", 60))
+        recent, _ = audit_stats(LINK_REFUSED_ACTION, since=datetime.utcnow() - window, user_id=actor.id,
+                                target_type="safeguarding_concern")
+        if recent >= current_app.config["ACCESS_DENIED_RECORD_CAP_PER_WINDOW"]:
+            return
+        _audit(actor, LINK_REFUSED_ACTION, concern, f"Concern {concern.id}: link refused, {reason}")
+    except Exception:  # noqa: BLE001 - same as audit_access_denied: the refusal must still happen
+        db.session.rollback()
+        current_app.logger.warning("Could not audit a refused concern link")
+
+
 def link_child(actor, concern, raw_child_id):
     """Set the child once, while it is NULL. Re-linking is refused and audited (a database
     trigger refuses it too)."""
@@ -238,8 +274,10 @@ def link_child(actor, concern, raw_child_id):
     try:
         child_id = int(str(raw_child_id).strip())
     except (TypeError, ValueError) as error:
+        _audit_link_refused(actor, concern, "attempted value is not a number")
         raise ConcernError("Enter the child's record number.") from error
-    if not _link_target_ok(child_id, concern.institution_mode):
+    if not 0 < child_id <= MAX_RECORD_ID or not _link_target_ok(child_id, concern.institution_mode):
+        _audit_link_refused(actor, concern, f"attempted record {child_id}: no current record in this mode")
         raise ConcernError("No current record with that number in this concern's mode.")
     concern.child_record_id, concern.updated_at = child_id, datetime.utcnow()
     db.session.flush()
@@ -259,6 +297,20 @@ def admin_rows():
             .order_by(SafeguardingConcern.created_at.desc()).all())
     return [{"id": r[0], "raised_at": r[1].isoformat(timespec="minutes"), "status": r[2], "mode": r[3],
              "involves_staff": bool(r[4]), "reporter": r[5]} for r in rows]
+
+
+def unreadable_counts():
+    """Per mode: concerns not yet closed that no lead can read, because every active lead in the
+    mode is the reporter (or there is no lead at all). Counts only, no ids or names."""
+    counts = {}
+    for mode in CONCERN_MODES:
+        lead_ids = [lead.id for lead in active_leads(mode)]
+        query = SafeguardingConcern.query.filter(SafeguardingConcern.institution_mode == mode,
+                                                 SafeguardingConcern.status != "closed")
+        if len(lead_ids) == 1:
+            query = query.filter(SafeguardingConcern.reporter_id == lead_ids[0])
+        counts[mode] = query.count() if len(lead_ids) <= 1 else 0
+    return counts
 
 
 def untriaged_counts():

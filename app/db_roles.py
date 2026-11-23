@@ -39,7 +39,7 @@ COLUMN_UPDATE_TABLES = {
     "guardian_links": ("status", "verified_by", "verified_at", "revoked_by", "revoked_at"),
     # Safeguarding concerns (#62): status columns only, so the narrative can't change after
     # submission. child_record_id is set once, while NULL (a trigger refuses re-linking).
-    "safeguarding_concerns": ("status", "urgency", "child_record_id", "updated_at", "closed_at", "closed_by"),
+    "safeguarding_concerns": ("status", "child_record_id", "updated_at", "closed_at", "closed_by"),
 }
 MIGRATION_TABLE = "alembic_version"
 # Row-level security (#19): the context key lives in an owner-only table the app role can't read.

@@ -55,7 +55,7 @@ BEGIN
     LOOP
         EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON public.safeguarding_concerns FROM %I', grantee_name);
         EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON public.safeguarding_concern_actions FROM %I', grantee_name);
-        EXECUTE format('GRANT UPDATE (status, urgency, child_record_id, updated_at, closed_at, closed_by) '
+        EXECUTE format('GRANT UPDATE (status, child_record_id, updated_at, closed_at, closed_by) '
                        'ON public.safeguarding_concerns TO %I', grantee_name);
     END LOOP;
 END $$;

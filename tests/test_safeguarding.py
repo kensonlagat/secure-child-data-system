@@ -389,3 +389,127 @@ def test_csrf_is_enforced_on_raising(app, sms):
     assert response.status_code in (302, 400)
     with app.app_context():
         assert SafeguardingConcern.query.count() == 0
+
+
+# --- Batch 7 review changes ----------------------------------------------------------------------------
+
+
+def _make_sole_school_lead(app):
+    """lead (school nurse) stays the only school lead; lead2 (principal) stops being one."""
+    with app.app_context():
+        User.query.filter_by(email="lead2@example.com").one().is_safeguarding_lead = False
+        db.session.commit()
+
+
+@pytest.mark.parametrize("urgency", ["low", "high"])
+def test_reporter_who_is_the_only_lead_gets_the_no_lead_path_and_message(app, sms, urgency):
+    _make_sole_school_lead(app)
+    lead = sign_in(app, "lead")
+    raise_concern(app, lead, urgency=urgency)
+    # Administrators are told (the reporter can't read their own concern), and the message says so.
+    assert {phone for phone, _ in sms} == {app.config["PHONES"]["admin"], app.config["PHONES"]["admin_lead"]}
+    assert all(message == NO_LEAD_SMS for _, message in sms)
+    page = lead.get("/concerns/mine").get_data(as_text=True)
+    assert "No other safeguarding lead is set up for this mode" in page
+    assert "sent to the safeguarding lead" not in page
+    assert "No safeguarding lead is set up" in lead.get("/concerns/new").get_data(as_text=True)
+
+
+def test_reporter_with_another_lead_is_told_it_went_to_the_lead(app, sms):
+    lead = sign_in(app, "lead")  # lead2 is also a school lead
+    raise_concern(app, lead, urgency="high")
+    assert {phone for phone, _ in sms} == {app.config["PHONES"]["lead2"]}
+    assert "sent to the safeguarding lead" in lead.get("/concerns/mine").get_data(as_text=True)
+
+
+def test_admin_sees_counts_of_concerns_no_lead_can_read(app, sms):
+    _make_sole_school_lead(app)
+    raise_concern(app, sign_in(app, "lead"))                  # unreadable: the only school lead reported it
+    raise_concern(app, sign_in(app, "teacher"))               # readable by lead
+    with app.app_context():                                   # no children's-home lead at all
+        User.query.filter_by(email="home_lead@example.com").one().is_safeguarding_lead = False
+        db.session.commit()
+    raise_concern(app, sign_in(app, "worker"), child_key=None)
+    admin = sign_in(app, "admin")
+    body = admin.get("/admin/concerns", headers={"Accept": "application/json"}).get_json()
+    assert body["unreadable_by_any_lead"] == {"school": 1, "childrens_home": 1}
+    html = admin.get("/admin/concerns").get_data(as_text=True)
+    assert "No lead can read" in html and "<strong>1</strong> unreadable" in html
+    # A second lead makes the school concern readable again.
+    with app.app_context():
+        User.query.filter_by(email="lead2@example.com").one().is_safeguarding_lead = True
+        db.session.commit()
+    body = admin.get("/admin/concerns", headers={"Accept": "application/json"}).get_json()
+    assert body["unreadable_by_any_lead"] == {"school": 0, "childrens_home": 1}
+
+
+def _link_refusals(app):
+    with app.app_context():
+        return [(row.target_record_id, row.details) for row in
+                AuditLogEntry.query.filter_by(action="concern_link_refused").order_by(AuditLogEntry.id)]
+
+
+def test_refused_links_are_audited_without_the_typed_text(app, sms):
+    raise_concern(app, sign_in(app, "teacher"), child_key=None)
+    concern = only_concern(app)
+    lead = sign_in(app, "lead")
+    url = f"/safeguarding/concerns/{concern.id}/link"
+    kids = app.config["K"]
+    for attempt in (CHILD_NAME, str(kids["home"]), str(kids["archived"]), "999999", "99999999999999"):
+        lead.post(url, data={"child_record_id": attempt})
+    rows = _link_refusals(app)
+    assert len(rows) == 5 and {target for target, _ in rows} == {concern.id}
+    assert "not a number" in rows[0][1]
+    for (_, details), number in zip(rows[1:], (kids["home"], kids["archived"], 999999, 99999999999999)):
+        assert f"attempted record {number}" in details
+    assert CHILD_NAME not in all_details(app)
+    with app.app_context():
+        assert db.session.get(SafeguardingConcern, concern.id).child_record_id is None
+    # A good link is not a refusal.
+    lead.post(url, data={"child_record_id": str(kids["out"])})
+    assert len(_link_refusals(app)) == 5 and count(app, "concern_child_linked") == 1
+
+
+def test_refused_link_audit_is_capped_per_user_per_window(app, sms):
+    app.config["ACCESS_DENIED_RECORD_CAP_PER_WINDOW"] = 3
+    raise_concern(app, sign_in(app, "teacher"), child_key=None)
+    concern = only_concern(app)
+    lead = sign_in(app, "lead")
+    for _ in range(6):
+        response = lead.post(f"/safeguarding/concerns/{concern.id}/link", data={"child_record_id": "abc"})
+        assert response.status_code == 302  # the refusal itself always happens
+    assert len(_link_refusals(app)) == 3
+
+
+def test_referred_is_reached_only_through_a_referral_action(app, sms):
+    raise_concern(app, sign_in(app, "teacher"))
+    concern = only_concern(app)
+    lead = sign_in(app, "lead")
+    url = f"/safeguarding/concerns/{concern.id}/actions"
+    page = lead.get(f"/safeguarding/concerns/{concern.id}").get_data(as_text=True)
+    status_select = page.split('id="status"')[1].split("</select>")[0]
+    assert 'value="triaged"' in status_select and 'value="referred"' not in status_select
+
+    lead.post(url, data={"action_type": "status_change", "status": "referred", "body": ""})
+    with app.app_context():
+        assert db.session.get(SafeguardingConcern, concern.id).status == "open"
+        assert SafeguardingConcernAction.query.count() == 0
+    lead.post(url, data={"action_type": "status_change", "status": "triaged", "body": ""})
+    lead.post(url, data={"action_type": "status_change", "status": "referred", "body": ""})  # still refused
+    with app.app_context():
+        assert db.session.get(SafeguardingConcern, concern.id).status == "triaged"
+    # Triaged has no status-change choices left; a referral (with its agency) is the way on.
+    page = lead.get(f"/safeguarding/concerns/{concern.id}").get_data(as_text=True)
+    assert 'value="status_change"' not in page and 'id="status"' not in page
+    lead.post(url, data={"action_type": "referral", "referral_agency": "police", "body": ""})
+    lead.post(url, data={"action_type": "status_change", "status": "triaged", "body": ""})  # referred -> triaged
+    with app.app_context():
+        assert db.session.get(SafeguardingConcern, concern.id).status == "triaged"
+
+
+def test_urgency_is_not_updatable_by_the_app_role():
+    from app.db_roles import COLUMN_UPDATE_TABLES
+
+    assert "urgency" not in COLUMN_UPDATE_TABLES["safeguarding_concerns"]
+    assert {"status", "child_record_id", "updated_at", "closed_at", "closed_by"} == \
+        set(COLUMN_UPDATE_TABLES["safeguarding_concerns"])

@@ -831,6 +831,9 @@ def test_the_database_refuses_changing_the_narrative_or_deleting(pg_app, concern
                        {"i": a}) == "42501"
         assert _pgcode(pg_app, user_key, "UPDATE safeguarding_concerns SET reporter_id = reporter_id WHERE id = :i",
                        {"i": a}) == "42501"
+        # Urgency is set once when the concern is raised; nothing updates it (batch 7 review).
+        assert _pgcode(pg_app, user_key, "UPDATE safeguarding_concerns SET urgency = urgency WHERE id = :i",
+                       {"i": a}) == "42501"
         assert _pgcode(pg_app, user_key, "DELETE FROM safeguarding_concerns WHERE id = :i", {"i": a}) == "42501"
         assert _pgcode(pg_app, user_key, "UPDATE safeguarding_concern_actions SET body = body WHERE id = :i",
                        {"i": a1}) == "42501"

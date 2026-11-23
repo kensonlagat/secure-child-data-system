@@ -53,7 +53,8 @@ def _own_mode():
 
 
 def _no_lead_modes_for_user():
-    missing = concerns.modes_without_lead()
+    """Modes where nobody but the current user could read a concern they raise."""
+    missing = concerns.modes_without_lead(exclude_user_id=current_user.id)
     mode = _own_mode()
     return missing if mode is None else [m for m in missing if m == mode]
 
@@ -84,16 +85,17 @@ def raise_concern():
                   target_id=int(raw_child) if raw_child.isdigit() else None)
     mode = record.institution_mode if record else (_own_mode() or request.form.get("institution_mode"))
     try:
-        concerns.raise_concern(current_user, record, mode, request.form)
+        _, notified = concerns.raise_concern(current_user, record, mode, request.form)
     except concerns.ConcernError as error:
         db.session.rollback()
         flash(str(error), "error")
         return redirect(url_for("safeguarding.new_concern"))
-    if mode in concerns.modes_without_lead():
-        flash("Your concern is saved. No safeguarding lead is set up for this mode yet, so administrators "
-              "have been told it is waiting.", "info")
-    else:
+    # The message follows who was actually told (the reporter never counts as a lead here).
+    if notified == "lead":
         flash("Your concern has been sent to the safeguarding lead.", "success")
+    else:
+        flash("Your concern is saved. No other safeguarding lead is set up for this mode, so administrators "
+              "have been told it is waiting.", "info")
     return redirect(url_for("safeguarding.my_concerns"))
 
 
@@ -109,7 +111,7 @@ def my_concerns():
     if _wants_json():
         return jsonify({"items": items})
     return render_template("safeguarding/mine.html", items=items, mode_labels=concerns.MODE_LABELS,
-                           no_lead_modes=concerns.modes_without_lead())
+                           no_lead_modes=concerns.modes_without_lead(exclude_user_id=current_user.id))
 
 
 # --- Leads -----------------------------------------------------------------------------------------
@@ -178,9 +180,11 @@ def admin_concerns():
     rows = concerns.admin_rows()
     untriaged = concerns.untriaged_counts()
     no_lead = concerns.modes_without_lead()
+    unreadable = concerns.unreadable_counts()
     log_action(user_id=current_user.id, action="concern_metadata_viewed", target_record_type="route",
                details=f"Viewed concern metadata: {len(rows)}")
     if _wants_json():
-        return jsonify({"items": rows, "untriaged_over_24h": untriaged, "modes_without_lead": no_lead})
+        return jsonify({"items": rows, "untriaged_over_24h": untriaged, "modes_without_lead": no_lead,
+                        "unreadable_by_any_lead": unreadable})
     return render_template("safeguarding/admin_list.html", rows=rows, untriaged=untriaged, no_lead=no_lead,
-                           mode_labels=concerns.MODE_LABELS)
+                           unreadable=unreadable, mode_labels=concerns.MODE_LABELS)

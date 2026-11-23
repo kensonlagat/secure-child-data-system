@@ -22,6 +22,14 @@
     </ul>
 </section>
 
+<section class="panel" aria-labelledby="unreadable-title">
+    <h2 id="unreadable-title">No lead can read</h2>
+    <p class="muted">Concerns not yet closed where every safeguarding lead in the area is the person who reported it, or there is no lead. Set another lead so these are read.</p>
+    <ul class="plain-list">
+        {% for mode, count in unreadable.items() %}<li>{{ mode_labels[mode] }}: <strong>{{ count }}</strong> unreadable</li>{% endfor %}
+    </ul>
+</section>
+
 <section class="panel" aria-labelledby="meta-title">
     <h2 id="meta-title">{{ rows | length }} concern{{ '' if rows | length == 1 else 's' }}</h2>
     {% if rows %}
